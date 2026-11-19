@@ -280,6 +280,8 @@ class LogsTab(QWidget):
                     targets = [f for f in files if f.rel in keys]
                 else:
                     targets = [f for f in files if not f.in_use and (delete or not ctx.index.get(dev.name, f))]
+                    if s.auto_match_logs_only:
+                        targets = [f for f in targets if logsync.is_match_log(f)]
                 for i, f in enumerate(targets):
                     if job.cancel.is_set():
                         break
@@ -379,8 +381,10 @@ class LogsTab(QWidget):
                 st, color = "in use 🔒", "pending"
             elif dev and self.ctx.index.get(dev.name, f):
                 st, color = "✓ saved", "pass"
+            elif logsync.is_match_log(f):
+                st, color = "new match log", "running"
             else:
-                st, color = "new", "running"
+                st, color = "practice (manual)" if self.ctx.settings.auto_match_logs_only else "new", "info"
             item = QTableWidgetItem(st)
             item.setForeground(status_color(color))
             self.table.setItem(row, 4, item)

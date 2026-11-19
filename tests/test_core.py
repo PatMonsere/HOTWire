@@ -116,6 +116,37 @@ def test_destination_rules(tmp_path):
     assert logsync.destination("S", "SC", hoot) == Path("S/SC/2026-11-18/2026-11-18_19-22-56/2026-11-18_19-22-57.hoot")
 
 
+def test_is_match_log():
+    def rf(rel):
+        return logsync.RemoteFile("/l/" + rel, rel, 1, 0)
+
+    # real names seen on the SystemCore 2026-11-19: practice logs
+    for rel in (
+        "WPILIB_20261111_224934.wpilog",
+        "WPILIB_TBD_16250975ee69675a.wpilog",
+        "2026-11-11_19-07-24/2026-11-11_19-07-26.hoot",
+        "2026-11-18_19-22-56/2026-11-18_19-22-57.hoot",
+    ):
+        assert not logsync.is_match_log(rf(rel)), rel
+    for rel in (
+        "WPILIB_20270315_141022_MIGA_Q12.wpilog",
+        "FRC_20240317_201534_MIGA_E3.wpilog",
+        "MIGA_Q12_2027-03-15_14-10-22/rio.hoot",
+        "2027-03-15_14-10-22_MIGA_Q12/rio.hoot",
+    ):
+        assert logsync.is_match_log(rf(rel)), rel
+
+
+def test_short_download_rejected(tmp_path):
+    root = make_robot(tmp_path)
+    fs = LocalFS(root)
+    f = logsync.list_logs(fs, LOGDIR, [".wpilog"], 60)[0]
+    f.size += 10  # robot says bigger than what we receive (dropped transfer)
+    with pytest.raises(IOError):
+        logsync.download(fs, f, tmp_path / "o.wpilog")
+    assert not (tmp_path / "o.wpilog.part").exists()
+
+
 def test_sync_verifies_then_deletes(tmp_path):
     root = make_robot(tmp_path)
     fs = LocalFS(root)

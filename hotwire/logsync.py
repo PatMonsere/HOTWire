@@ -56,9 +56,11 @@ class RemoteFS(Protocol):
 class SSHRemoteFS:
     """RemoteFS over an sshconn.Connection (SFTP + a few shell commands)."""
 
-    def __init__(self, conn):
+    def __init__(self, conn, stall_timeout: float = 30.0):
         self.conn = conn
         self.sftp = conn.sftp()
+        # A stalled transfer raises socket.timeout instead of hanging forever.
+        self.sftp.get_channel().settimeout(stall_timeout)
 
     def walk(self, root):
         import stat as st
@@ -95,7 +97,9 @@ class SSHRemoteFS:
 
     def open_read(self, path):
         f = self.sftp.open(path, "rb")
-        f.prefetch()
+        # Unbounded prefetch (one request per 32 KB of the whole file) stalled the
+        # SystemCore's sftp-server on a 375 MB log (2026-11-19). Keep 64 in flight.
+        f.prefetch(self.sftp.stat(path).st_size, max_concurrent_requests=64)
         return f
 
     def remove(self, path):
@@ -139,6 +143,18 @@ def list_logs(fs: RemoteFS, log_dir: str, exts: list[str], in_use_seconds: int) 
 # WPILIB_TBD_<hash>.wpilog before the DS has sent the time; older WPILib used FRC_.
 WPILOG_RE = re.compile(r"^(?:FRC|WPILIB)_(\d{8})_(\d{6})(?:_([A-Za-z0-9]+)_([A-Za-z]+\d+))?\.wpilog$")
 DATE_RE = re.compile(r"(20\d\d)[-_]?(\d\d)[-_]?(\d\d)")
+
+
+# Event + match anywhere in a name, e.g. ..._MIGA_Q12.wpilog or MIGA_E3_...hoot
+MATCH_RE = re.compile(r"(?:^|[_\-/])[A-Za-z0-9]{2,}[_\-]((?:Q|E|P)\d{1,3})(?=[_\-./]|$)")
+
+
+def is_match_log(rf: RemoteFile) -> bool:
+    """True for logs recorded with the FMS attached (event + match in the name)."""
+    m = WPILOG_RE.match(rf.name)
+    if m:
+        return bool(m.group(3))
+    return bool(MATCH_RE.search(rf.rel))
 
 
 def destination(save_folder: str, device_name: str, rf: RemoteFile, today: str | None = None) -> Path:
@@ -218,22 +234,29 @@ def download(
     done = 0
     t0 = time.monotonic()
     rate = speed_limit_kbps * 1024 if speed_limit_kbps > 0 else 0
-    with fs.open_read(rf.path) as src, open(part, "wb") as out:
-        while True:
-            if cancel is not None and cancel.is_set():
-                break
-            chunk = src.read(CHUNK)
-            if not chunk:
-                break
-            out.write(chunk)
-            h.update(chunk)
-            done += len(chunk)
-            if progress:
-                progress(done, rf.size)
-            if rate:
-                ahead = done / rate - (time.monotonic() - t0)
-                if ahead > 0:
-                    time.sleep(ahead)
+    try:
+        with fs.open_read(rf.path) as src, open(part, "wb") as out:
+            while True:
+                if cancel is not None and cancel.is_set():
+                    break
+                chunk = src.read(CHUNK)
+                if not chunk:
+                    break
+                out.write(chunk)
+                h.update(chunk)
+                done += len(chunk)
+                if progress:
+                    progress(done, rf.size)
+                if rate:
+                    ahead = done / rate - (time.monotonic() - t0)
+                    if ahead > 0:
+                        time.sleep(ahead)
+    except Exception:
+        part.unlink(missing_ok=True)  # stalled / dropped: don't leave a half file
+        raise
+    if done != rf.size and not (cancel is not None and cancel.is_set()):
+        part.unlink(missing_ok=True)
+        raise IOError(f"{rf.name}: got {done} of {rf.size} bytes")
     if cancel is not None and cancel.is_set():
         part.unlink(missing_ok=True)
         raise Cancelled()

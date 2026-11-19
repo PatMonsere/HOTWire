@@ -88,6 +88,9 @@ class Settings:
     lock_when_processes: list[str] = field(default_factory=list)
     speed_limit_kbps: int = 0  # 0 = unlimited
     delete_after_verify: bool = True
+    # Auto mode pulls only FMS match logs (event + match in the file name).
+    # Practice logs stay on the robot until pulled in Manual mode.
+    auto_match_logs_only: bool = True
     in_use_seconds: int = 60  # a robot file modified this recently is "in use"
     minimize_to_tray: bool = True
     start_minimized: bool = False
