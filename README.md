@@ -23,11 +23,15 @@ Robot files are never deleted unless the downloaded copy matches the robot's own
 
 ## Install (Windows)
 
+**Easiest:** download `HOTWire.exe` from [Releases](https://github.com/PatMonsere/HOTWire/releases) and run it. You don't need to install anything. Windows may show "Windows protected your PC" because the exe isn't signed: click **More info → Run anyway**. If the laptop has **Smart App Control** on, Windows blocks the exe completely. Use the Python install below instead.
+
+**From source (works even with Smart App Control on):**
+
 1. Install **Python 3.13** from python.org (or `winget install Python.Python.3.13`).
 2. Clone this repo, then double-click **`install.bat`**. Or run `powershell -ExecutionPolicy Bypass -File install.ps1`: running `install.ps1` directly fails if Windows blocks scripts, which it does by default.
 3. Start **HOTWire** from the Start menu or the desktop.
 
-HOTWire uses the official WPILib NetworkTables library (`pyntcore`). If Windows **Smart App Control** is on, it blocks pyntcore's DLLs, so HOTWire switches automatically to its own pure-Python NetworkTables client. **Settings → NetworkTables client** shows which one is in use and lets you force either one. For the same reason there's no `.exe`: Smart App Control blocks unsigned programs.
+HOTWire uses the official WPILib NetworkTables library (`pyntcore`). If Windows **Smart App Control** is on, it blocks pyntcore's DLLs, so HOTWire switches automatically to its own pure-Python NetworkTables client. **Settings → NetworkTables client** shows which one is in use and lets you force either one. For the same reason the unsigned `.exe` won't run on those laptops.
 
 On a programming laptop, we recommend turning Smart App Control off (Windows Security → App & browser control). It also blocks other robot tools.
 
@@ -65,6 +69,7 @@ py -3.13 -m venv .venv
 .\.venv\Scripts\python -m pytest            # unit, fake-robot and offscreen GUI tests
 .\.venv\Scripts\python tools\fake_robot.py  # fake robot NT4 server on 127.0.0.1:5810
 .\.venv\Scripts\python -m hotwire
+powershell -ExecutionPolicy Bypass -File build_exe.ps1   # -> dist\HOTWire.exe
 ```
 
 To try the GUI without a robot: run `tools/fake_robot.py`, then in Settings set the SystemCore address to `127.0.0.1`. `--fms` and `--enabled` simulate a robot on the field or enabled.

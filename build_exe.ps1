@@ -1,0 +1,38 @@
+# Build dist\HOTWire.exe (single file) with PyInstaller.
+#
+#   powershell -ExecutionPolicy Bypass -File build_exe.ps1
+#
+# The .exe is unsigned: Windows Smart App Control (if on) will block it.
+# On such laptops use install.bat instead.
+
+$ErrorActionPreference = "Stop"
+$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location $root
+$py = ".\.venv\Scripts\python.exe"
+
+& $py -m pip install --quiet -r requirements.txt pyinstaller
+& $py tools\make_icon.py
+
+# Qt modules HOTWire doesn't use (keeps the exe much smaller)
+$exclude = @(
+  "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtWebEngineQuick", "PySide6.QtWebChannel",
+  "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtQuick3D", "PySide6.QtQuickWidgets", "PySide6.Qt3DCore",
+  "PySide6.Qt3DRender", "PySide6.QtMultimedia", "PySide6.QtMultimediaWidgets", "PySide6.QtPdf",
+  "PySide6.QtPdfWidgets", "PySide6.QtDataVisualization", "PySide6.QtGraphs", "PySide6.QtLocation",
+  "PySide6.QtPositioning", "PySide6.QtSensors", "PySide6.QtSerialPort", "PySide6.QtBluetooth",
+  "PySide6.QtNfc", "PySide6.QtSql", "PySide6.QtTest", "PySide6.QtDesigner", "PySide6.QtHelp",
+  "PySide6.QtSpatialAudio", "PySide6.QtTextToSpeech", "PySide6.QtRemoteObjects", "PySide6.QtScxml",
+  "PySide6.QtStateMachine", "PySide6.QtHttpServer", "PySide6.QtWebSockets", "PySide6.QtOpenGL",
+  "PySide6.QtOpenGLWidgets", "PySide6.QtSvgWidgets", "PySide6.QtUiTools", "PySide6.QtXml",
+  "tkinter", "pytest"
+) | ForEach-Object { "--exclude-module"; $_ }
+
+& $py -m PyInstaller --noconfirm --clean --onefile --windowed `
+  --name HOTWire `
+  --icon assets\hotwire.ico `
+  --add-data "examples\pit_checks.yaml;examples" `
+  --collect-all ntcore --collect-all wpiutil --collect-all wpinet --collect-all native `
+  @exclude `
+  hotwire\__main__.py
+
+Write-Host ("Built: " + (Resolve-Path dist\HOTWire.exe) + "  " + [math]::Round((Get-Item dist\HOTWire.exe).Length / 1MB, 1) + " MB") -ForegroundColor Green

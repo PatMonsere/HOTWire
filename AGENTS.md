@@ -33,7 +33,7 @@ Windows **Smart App Control** blocks unsigned DLLs and EXEs, and it is on for so
 Other consequences of Smart App Control:
 
 - `hotwire/pitcheck/wpilog.py` is a pure-Python `.wpilog` reader, so it doesn't depend on robotpy.
-- No PyInstaller `.exe`. `install.ps1` creates a venv on the signed python.org Python 3.13 and makes shortcuts that run `pythonw -m hotwire`.
+- Two ways to ship HOTWire. `build_exe.ps1` makes a single-file PyInstaller `dist\HOTWire.exe` (unsigned, so it's blocked where Smart App Control is on). It bundles pyntcore's native DLLs with `--collect-all ntcore/wpiutil/wpinet/native` and `examples/pit_checks.yaml`, and excludes unused Qt modules. The exe is attached to GitHub Releases and not committed. `install.ps1`/`install.bat` create a venv on the signed python.org Python 3.13 with `pythonw -m hotwire` shortcuts, which works everywhere. Bundled data files are found through `sys._MEIPASS` when running frozen (see `pit_tab.EXAMPLE`).
 - PySide6, numpy, paramiko/cryptography, msgpack and ruamel.yaml load even with Smart App Control on. Before adding a dependency with native code, keep the app working when that dependency is blocked.
 
 ## Layout

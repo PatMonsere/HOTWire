@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -39,7 +40,9 @@ from hotwire.pitcheck.recorder import Recorder, load_csv, save_csv
 from hotwire.pitcheck.wpilog import read_wpilog
 from hotwire.ui.common import status_color
 
-EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "pit_checks.yaml"
+# In the .exe (PyInstaller) bundled files live under sys._MEIPASS
+_BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+EXAMPLE = _BASE / "examples" / "pit_checks.yaml"
 NUMERIC_TYPES = {"double", "float", "int", "boolean"}
 
 
