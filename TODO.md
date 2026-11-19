@@ -3,6 +3,8 @@
 ## UI
 - [ ] Logs tab: **Select all / Select none** buttons (and maybe "select all practice logs").
 - [ ] Open **maximized (full size)** on launch.
+- [ ] Jetson tab: "USB errors" counts the harmless boot message `fusb301: probe of 1-0025 failed with error -22` (USB-C controller on the dev kit board). Only count real ones: disconnects, over-current, descriptor read errors, resets after boot.
+- [ ] Jetson tab: show the heartbeat data (vin_min_v, events) once the `jetson-heartbeat` branch is on the Jetson.
 - [ ] Logs tab: the "Modified (robot clock)" column header gets cut off; the status line at the bottom can be hidden when the window is short.
 
 ## Robot code (Rebuilt_Systemcore), needed by HOTWire features
