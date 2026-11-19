@@ -24,7 +24,7 @@ Robot files are never deleted unless the downloaded copy matches the robot's own
 ## Install (Windows)
 
 1. Install **Python 3.13** from python.org (or `winget install Python.Python.3.13`).
-2. Clone this repo, then run `powershell -ExecutionPolicy Bypass -File install.ps1`.
+2. Clone this repo, then double-click **`install.bat`**. Or run `powershell -ExecutionPolicy Bypass -File install.ps1`: running `install.ps1` directly fails if Windows blocks scripts, which it does by default.
 3. Start **HOTWire** from the Start menu or the desktop.
 
 HOTWire uses the official WPILib NetworkTables library (`pyntcore`). If Windows **Smart App Control** is on, it blocks pyntcore's DLLs, so HOTWire switches automatically to its own pure-Python NetworkTables client. **Settings → NetworkTables client** shows which one is in use and lets you force either one. For the same reason there's no `.exe`: Smart App Control blocks unsigned programs.
