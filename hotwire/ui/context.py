@@ -30,6 +30,8 @@ class AppContext(QObject):
         self.process_lock = False  # set by MainWindow when a lock_when_processes program runs
         self._log_file = data_dir() / "hotwire.log"
         self._last_connect_time = 0.0
+        self._batt_uid = None
+        self.subscribe_battery()
         self.start_nt()
         self.log(f"NetworkTables client: {self.nt_backend_desc}")
 
@@ -50,6 +52,19 @@ class AppContext(QObject):
     def restart_nt(self) -> None:
         self.stop_nt()
         self.start_nt()
+
+    def subscribe_battery(self) -> None:
+        if self._batt_uid is not None:
+            self.nt.unsubscribe(self._batt_uid)
+            self._batt_uid = None
+        if self.settings.battery_topic.strip():
+            self._batt_uid = self.nt.subscribe([self.settings.battery_topic], periodic=0.5)
+
+    def battery_voltage(self) -> float | None:
+        if not self.settings.battery_topic.strip() or self.locked:
+            return None
+        v = self.nt.get(self.settings.battery_topic)
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
     # ---------------------------------------------------------------- lock
     @property

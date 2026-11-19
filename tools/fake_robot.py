@@ -32,7 +32,7 @@ def now_us() -> int:
 
 
 TOPICS = {
-    "/DriverStation/FMSControlData": "int",
+    "/DriverStation/ControlWord": "struct:ControlWord",  # 2027 SystemCore format
     "/DriverStation/EventName": "string",
     "/DriverStation/MatchNumber": "int",
     "/DriverStation/MatchType": "int",
@@ -49,13 +49,20 @@ TOPICS = {
     "/HOT/Shooter/Hood/ShooterHoodPosition": "double",
     "/HOT/Shooter/Hood/ShooterHoodSupply Current": "double",
     "/HOT/Drive/TotalCurrent": "double",
+    "/HOT/Robot/BatteryVoltage": "double",
 }
 for cam in ("LEFT", "FRONT", "BACK_LEFT", "BACK_RIGHT"):
     TOPICS[f"/HOTVision/{cam}/connected"] = "boolean"
     TOPICS[f"/HOTVision/{cam}/capture_fps"] = "double"
     TOPICS[f"/HOTVision/{cam}/apriltag/latency"] = "double"
     TOPICS[f"/HOTVision/{cam}/apriltag/num_tags"] = "int"
-TYPE_IDS = {"boolean": 0, "double": 1, "int": 2, "float": 3, "string": 4}
+TYPE_IDS = {"boolean": 0, "double": 1, "int": 2, "float": 3, "string": 4, "struct:ControlWord": 5}
+
+
+def control_word(enabled: bool, fms: bool, ds: bool = True, mode: int = 3) -> bytes:
+    """2027 struct:ControlWord: opModeHash:56, robotMode:2, enabled, eStop, fmsAttached, dsAttached."""
+    w = (mode << 56) | (int(enabled) << 58) | (int(fms) << 60) | (int(ds) << 61)
+    return w.to_bytes(8, "little")
 IDS = {name: i + 1 for i, name in enumerate(TOPICS)}
 
 
@@ -88,6 +95,7 @@ def pit_signals(t: float) -> dict:
     v["/HOT/Shooter/Hood/ShooterHoodSupply Current"] = (10 * math.exp(-(c - 15) / 0.2) + 1) if sh else 0.0
     dr = 22 <= c < 25
     v["/HOT/Drive/TotalCurrent"] = (90 * math.exp(-(c - 22) / 0.3) + 35 + 5 * math.sin(c * 7)) if dr else 2.0
+    v["/HOT/Robot/BatteryVoltage"] = 12.6 - 0.012 * v["/HOT/Drive/TotalCurrent"]  # sag under load
     return v
 
 
@@ -218,11 +226,11 @@ def main():
     ap.add_argument("--fms", action="store_true", help="pretend the FMS is attached")
     ap.add_argument("--enabled", action="store_true", help="pretend the robot is enabled")
     args = ap.parse_args()
-    word = (1 if args.enabled else 0) | (16 if args.fms else 0) | 32
+    word = control_word(args.enabled, args.fms, mode=2 if args.fms else 3)
     state = {"clients": [], "values": {}}
     state["values"].update(
         {
-            "/DriverStation/FMSControlData": word,
+            "/DriverStation/ControlWord": word,
             "/DriverStation/EventName": "TEST" if args.fms else "",
             "/DriverStation/MatchNumber": 12 if args.fms else 0,
             "/DriverStation/MatchType": 2 if args.fms else 0,

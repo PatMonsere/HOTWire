@@ -60,6 +60,9 @@ class MainWindow(QMainWindow):
         head = QHBoxLayout()
         self.badge = QLabel("…")
         head.addWidget(self.badge)
+        self.battery = QLabel("Battery: n/a")
+        self.battery.setToolTip("Robot battery voltage (from the NT topic set in Settings)")
+        head.addWidget(self.battery)
         self.match = QLabel("")
         head.addWidget(self.match)
         head.addStretch(1)
@@ -153,6 +156,14 @@ class MainWindow(QMainWindow):
             text, color = f"{st.label} (pits): OK", STATUS_COLORS["pass"]
         self.badge.setText(text)
         self.badge.setStyleSheet(badge_style(color))
+        v = self.ctx.battery_voltage()
+        if v is None:
+            self.battery.setText("🔋 Battery: n/a")
+            self.battery.setStyleSheet(badge_style(STATUS_COLORS["pending"]))
+        else:
+            bc = "fail" if v < s.battery_low_v else "warn" if v < s.battery_warn_v else "pass"
+            self.battery.setText(f"🔋 {v:.2f} V")
+            self.battery.setStyleSheet(badge_style(STATUS_COLORS[bc]))
         host = self.ctx.nt.connected_host
         bits = [b for b in (st.event, st.match) if b]
         nt = f"NT ({self.ctx.nt.backend}): {host}" if host else f"NT ({self.ctx.nt.backend})"

@@ -216,6 +216,22 @@ def test_control_word():
     assert w["enabled"] and w["fms_attached"] and w["ds_attached"] and not w["autonomous"]
 
 
+def test_control_word_struct_2027():
+    from hotwire.robotstate import decode_control_word_struct
+
+    # value read from the real SystemCore on 2026-11-19: disabled, no DS
+    d = decode_control_word_struct(b"\x00" * 8)
+    assert d and not d["enabled"] and not d["fms_attached"] and not d["ds_attached"] and d["mode"] == "unknown"
+    # enabled teleop with FMS + DS, opModeHash in the low bits must not leak into the flags
+    w = (0xABCDEF12345678) | (2 << 56) | (1 << 58) | (1 << 60) | (1 << 61)
+    d = decode_control_word_struct(w.to_bytes(8, "little"))
+    assert d["enabled"] and d["fms_attached"] and d["ds_attached"] and not d["estop"] and d["mode"] == "teleoperated"
+    w = (3 << 56) | (1 << 59) | (1 << 61)
+    d = decode_control_word_struct(w.to_bytes(8, "little"))
+    assert d["estop"] and not d["enabled"] and d["mode"] == "utility"
+    assert decode_control_word_struct(b"\x01") is None and decode_control_word_struct(5) is None
+
+
 # ------------------------------------------------------------------ config + analysis
 CFG = """
 defaults:

@@ -10,12 +10,18 @@ from dataclasses import dataclass
 
 from hotwire.nt4 import NT4Client
 
-# WPILib publishes the DS control word here. 2027 (SystemCore) uses
-# /DriverStation; older versions used /FMSInfo. We subscribe to both.
+# Where the robot publishes its Driver Station state:
+# * 2027 / SystemCore: /DriverStation/ControlWord, a struct (8 raw bytes). Schema read
+#   from the robot on 2026-11-19 (/.schema/struct:ControlWord):
+#     uint64 opModeHash:56; enum{unknown=0,autonomous=1,teleoperated=2,utility=3}
+#     uint64 robotMode:2; bool enabled:1; bool eStop:1; bool fmsAttached:1; bool dsAttached:1;
+#   Bitfields pack from the least significant bit of the little-endian uint64.
+# * Older WPILib: /FMSInfo/FMSControlData, an int (bit 0 enabled ... bit 5 dsAttached).
 TABLES = ["/DriverStation", "/FMSInfo"]
-FIELDS = ["FMSControlData", "EventName", "MatchNumber", "MatchType"]
+FIELDS = ["ControlWord", "FMSControlData", "EventName", "MatchNumber", "MatchType"]
 
 MATCH_TYPES = {0: "", 1: "P", 2: "Q", 3: "E"}
+ROBOT_MODES = {0: "unknown", 1: "autonomous", 2: "teleoperated", 3: "utility"}
 
 
 @dataclass
@@ -30,6 +36,7 @@ class RobotState:
     ds_attached: bool = False
     event: str = ""
     match: str = ""  # e.g. "Q12"
+    mode: str = ""  # 2027: unknown / autonomous / teleoperated / utility
 
     @property
     def label(self) -> str:
@@ -39,12 +46,31 @@ class RobotState:
             return "Robot state unknown"
         if self.fms_attached:
             return "On field (FMS) - locked"
+        m = f" ({self.mode})" if self.mode and self.mode != "unknown" else ""
         if self.enabled:
-            return "Enabled"
-        return "Disabled"
+            return "Enabled" + m
+        return "Disabled" + m
+
+
+def decode_control_word_struct(raw: bytes) -> dict | None:
+    """2027 struct:ControlWord (8 bytes)."""
+    if not isinstance(raw, (bytes, bytearray)) or len(raw) < 8:
+        return None
+    w = int.from_bytes(bytes(raw[:8]), "little")
+    mode = (w >> 56) & 0x3
+    return {
+        "enabled": bool(w >> 58 & 1),
+        "autonomous": mode == 1,
+        "test": False,
+        "estop": bool(w >> 59 & 1),
+        "fms_attached": bool(w >> 60 & 1),
+        "ds_attached": bool(w >> 61 & 1),
+        "mode": ROBOT_MODES[mode],
+    }
 
 
 def decode_control_word(word: int) -> dict:
+    """Older WPILib FMSControlData integer."""
     word = int(word)
     return {
         "enabled": bool(word & 1),
@@ -67,15 +93,16 @@ class RobotStateReader:
         s = RobotState(nt_connected=self.nt.connected)
         if not s.nt_connected:
             return s
-        word = None
-        for t in TABLES:
-            tv = self.nt.get_timestamped(f"{t}/FMSControlData")
-            if tv is not None:
-                word = tv[1]
-                break
-        if word is not None:
+        decoded = decode_control_word_struct(self.nt.get("/DriverStation/ControlWord"))
+        if decoded is None:
+            for t in TABLES:
+                word = self.nt.get(f"{t}/FMSControlData")
+                if isinstance(word, int) and not isinstance(word, bool):
+                    decoded = decode_control_word(word)
+                    break
+        if decoded is not None:
             s.known = True
-            for k, v in decode_control_word(word).items():
+            for k, v in decoded.items():
                 setattr(s, k, v)
         for t in TABLES:
             ev = self.nt.get(f"{t}/EventName")

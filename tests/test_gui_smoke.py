@@ -51,6 +51,7 @@ def test_gui_smoke(tmp_path):
         spin(2.5)
         assert ctx.state.known and not ctx.state.fms_attached, ctx.state
         assert "OK" in w.badge.text()
+        assert w.battery.text().endswith(" V"), w.battery.text()  # battery readout from NT
         for i in range(w.tabs.count()):
             w.tabs.setCurrentIndex(i)
             spin(0.6)

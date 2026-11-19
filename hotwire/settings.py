@@ -98,6 +98,11 @@ class Settings:
     # "auto" = pyntcore (official WPILib library) if it loads, else the built-in
     # pure-Python client; "pyntcore" or "builtin" to force one. Restart to apply.
     nt_backend: str = "auto"
+    # Battery voltage shown in the header. The robot must publish it, e.g.
+    # RobotController.getBatteryVoltage() to /HOT/Robot/BatteryVoltage.
+    battery_topic: str = "/HOT/Robot/BatteryVoltage"
+    battery_warn_v: float = 12.3  # yellow below this (resting voltage)
+    battery_low_v: float = 12.0  # red below this: swap the battery
     jetson_snapshot_on_connect: bool = False
     stream_sharpness_min: float = 0.0  # 0 = don't judge sharpness
     devices: list[Device] = field(default_factory=default_devices)

@@ -168,6 +168,9 @@ class SettingsTab(QWidget):
         self.nt_backend.setCurrentIndex(max(0, self.nt_backend.findData(s.nt_backend)))
         f.addRow("NetworkTables client:", self.nt_backend)
         f.addRow("", QLabel(f"In use now: {ctx.nt_backend_desc}  (changes apply after restarting HOTWire)"))
+        self.batt_topic = QLineEdit(s.battery_topic)
+        self.batt_topic.setPlaceholderText("(empty = don't show)")
+        f.addRow("Battery voltage NT topic:", self.batt_topic)
         self.key_path = QLineEdit(s.key_path)
         f.addRow("SSH key file:", _path_row(self.key_path, self, folder=False))
 
@@ -339,6 +342,9 @@ class SettingsTab(QWidget):
             QMessageBox.information(self, "Restart needed", "The NetworkTables client changes after you restart HOTWire.")
         s.nt_backend = new_backend
         s.key_path = self.key_path.text().strip()
+        if self.batt_topic.text().strip() != s.battery_topic:
+            s.battery_topic = self.batt_topic.text().strip()
+            self.ctx.subscribe_battery()
         s.devices = [Device.from_dict(_asdict(d)) for d in self.devices]
         s.save()
         if old_nt != (s.nt_device, s.nt_port, [_asdict(d) for d in s.devices]):
