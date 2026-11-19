@@ -2,6 +2,7 @@
 
 ## UI
 - [ ] Logs tab: **Select all / Select none** buttons (and maybe "select all practice logs").
+- [ ] Open **maximized (full size)** on launch.
 - [ ] Logs tab: the "Modified (robot clock)" column header gets cut off; the status line at the bottom can be hidden when the window is short.
 
 ## Robot code (Rebuilt_Systemcore), needed by HOTWire features
