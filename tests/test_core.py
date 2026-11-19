@@ -105,6 +105,15 @@ def test_destination_rules(tmp_path):
     assert logsync.destination("S", "SC", rf2) == Path("S/SC/2026-11-18/2026-11-18_10-00-00/rio.hoot")
     rf3 = logsync.RemoteFile("/l/x.hoot", "x.hoot", 1, 0)
     assert logsync.destination("S", "SC", rf3, today="2026-11-19") == Path("S/SC/2026-11-19/x.hoot")
+    # 2027 SystemCore names (seen on the robot 2026-11-19)
+    w = logsync.RemoteFile("/l/WPILIB_20261118_234315.wpilog", "WPILIB_20261118_234315.wpilog", 1, 0)
+    assert logsync.destination("S", "SC", w) == Path("S/SC/2026-11-18/WPILIB_20261118_234315.wpilog")
+    wm = logsync.RemoteFile("/l/WPILIB_20270315_141022_MIGA_Q12.wpilog", "WPILIB_20270315_141022_MIGA_Q12.wpilog", 1, 0)
+    assert logsync.destination("S", "SC", wm) == Path("S/SC/MIGA/Q12/WPILIB_20270315_141022_MIGA_Q12.wpilog")
+    tbd = logsync.RemoteFile("/l/WPILIB_TBD_16250975ee69675a.wpilog", "WPILIB_TBD_16250975ee69675a.wpilog", 1, 0)
+    assert logsync.destination("S", "SC", tbd, today="2026-11-19") == Path("S/SC/2026-11-19/WPILIB_TBD_16250975ee69675a.wpilog")
+    hoot = logsync.RemoteFile("/l/2026-11-18_19-22-56/2026-11-18_19-22-57.hoot", "2026-11-18_19-22-56/2026-11-18_19-22-57.hoot", 1, 0)
+    assert logsync.destination("S", "SC", hoot) == Path("S/SC/2026-11-18/2026-11-18_19-22-56/2026-11-18_19-22-57.hoot")
 
 
 def test_sync_verifies_then_deletes(tmp_path):

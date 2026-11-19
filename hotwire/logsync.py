@@ -135,14 +135,16 @@ def list_logs(fs: RemoteFS, log_dir: str, exts: list[str], in_use_seconds: int) 
 
 
 # --------------------------------------------------------------- organizing
-WPILOG_RE = re.compile(r"^FRC_(\d{8})_(\d{6})(?:_([A-Za-z0-9]+)_([A-Za-z]+\d+))?\.wpilog$")
+# 2027 (SystemCore) names logs WPILIB_<date>_<time>[_EVENT_MATCH].wpilog, or
+# WPILIB_TBD_<hash>.wpilog before the DS has sent the time; older WPILib used FRC_.
+WPILOG_RE = re.compile(r"^(?:FRC|WPILIB)_(\d{8})_(\d{6})(?:_([A-Za-z0-9]+)_([A-Za-z]+\d+))?\.wpilog$")
 DATE_RE = re.compile(r"(20\d\d)[-_]?(\d\d)[-_]?(\d\d)")
 
 
 def destination(save_folder: str, device_name: str, rf: RemoteFile, today: str | None = None) -> Path:
     """Where a robot file is saved locally.
 
-    FRC_<date>_<time>_<EVENT>_<Q12>.wpilog -> <save>/<device>/<EVENT>/<Q12>/
+    WPILIB_<date>_<time>_<EVENT>_<Q12>.wpilog -> <save>/<device>/<EVENT>/<Q12>/
     anything else                          -> <save>/<device>/<date>/<relative path>
     The date comes from the file name if it has one, else today's (laptop) date,
     because the robot clock is often wrong.
