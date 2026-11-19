@@ -95,6 +95,9 @@ class Settings:
     key_path: str = str(Path.home() / ".ssh" / "id_ed25519")
     nt_device: str = "SystemCore"  # NetworkTables server = this device's hosts
     nt_port: int = 5810
+    # "auto" = pyntcore (official WPILib library) if it loads, else the built-in
+    # pure-Python client; "pyntcore" or "builtin" to force one. Restart to apply.
+    nt_backend: str = "auto"
     jetson_snapshot_on_connect: bool = False
     stream_sharpness_min: float = 0.0  # 0 = don't judge sharpness
     devices: list[Device] = field(default_factory=default_devices)

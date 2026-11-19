@@ -7,7 +7,7 @@ from datetime import datetime
 from PySide6.QtCore import QObject, Signal
 
 from hotwire.logsync import Index
-from hotwire.nt4 import NT4Client
+from hotwire.nt4 import make_client
 from hotwire.robotstate import Gate, RobotState, RobotStateReader, gate
 from hotwire.settings import Settings, data_dir
 
@@ -24,13 +24,14 @@ class AppContext(QObject):
         super().__init__()
         self.settings = settings
         self.index = Index()
-        self.nt = NT4Client(port=settings.nt_port)
+        self.nt, self.nt_backend_desc = make_client(settings.nt_backend, settings.nt_port)
         self.state_reader = RobotStateReader(self.nt)
         self.state = RobotState()
         self.process_lock = False  # set by MainWindow when a lock_when_processes program runs
         self._log_file = data_dir() / "hotwire.log"
         self._last_connect_time = 0.0
         self.start_nt()
+        self.log(f"NetworkTables client: {self.nt_backend_desc}")
 
     # ---------------------------------------------------------------- NT
     def nt_hosts(self) -> list[str]:

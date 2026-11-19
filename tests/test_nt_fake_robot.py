@@ -1,11 +1,12 @@
-"""End-to-end: NT4 client + robot state + recorder + analysis against tools/fake_robot.py.
+"""End-to-end: NT client + robot state + recorder + analysis against tools/fake_robot.py.
 
-This proves HOTWire's NT4 client works against our own fake server. It does
-NOT prove compatibility with the real robot; check that at the shop.
+Runs for both NetworkTables backends (built-in and pyntcore). Proves they work
+against our own fake server, NOT against the real robot: check that at the shop.
 """
 
 from __future__ import annotations
 
+import itertools
 import os
 import subprocess
 import sys
@@ -23,6 +24,20 @@ from hotwire.pitcheck.recorder import Recorder  # noqa: E402
 from hotwire.robotstate import RobotStateReader, gate  # noqa: E402
 
 ROOT = Path(__file__).parents[1]
+_ports = itertools.count(15840)
+
+try:
+    from hotwire.nt_pyntcore import PyntcoreClient, available
+
+    HAVE_PYNTCORE = available()[0]
+except Exception:  # Smart App Control on / not installed
+    HAVE_PYNTCORE = False
+
+BACKENDS = ["builtin"] + (["pyntcore"] if HAVE_PYNTCORE else [])
+
+
+def client(backend, port):
+    return NT4Client(port=port) if backend == "builtin" else PyntcoreClient(port=port)
 
 
 def start_fake(port, *flags):
@@ -40,10 +55,11 @@ def wait_for(cond, timeout=8.0):
     return False
 
 
-@pytest.fixture
-def pits():
-    p = start_fake(15810)
-    nt = NT4Client(port=15810)
+@pytest.fixture(params=BACKENDS)
+def pits(request):
+    port = next(_ports)
+    p = start_fake(port)
+    nt = client(request.param, port)
     nt.start(["127.0.0.1"])
     yield nt
     nt.stop()
@@ -56,11 +72,14 @@ def test_state_and_gate_in_pits(pits):
     st = reader.read()
     assert st.ds_attached and not st.fms_attached and not st.enabled
     assert gate(st, False, manual=False).allowed
+    assert pits.connected_host == "127.0.0.1"
 
 
-def test_fms_blocks():
-    p = start_fake(15811, "--fms")
-    nt = NT4Client(port=15811)
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_fms_blocks(backend):
+    port = next(_ports)
+    p = start_fake(port, "--fms")
+    nt = client(backend, port)
     nt.start(["127.0.0.1"])
     try:
         reader = RobotStateReader(nt)
@@ -84,12 +103,24 @@ def test_record_pit_test_and_analyze(pits):
     data = rec.snapshot()
     n = len(data["/HOT/Intake/Extend/IntakeExtendSupply Current"])
     assert n > 100, f"send-all should deliver every value, got {n}"
+    # robot (server) timestamps line up with server_time_us()
+    last_t = data["/HOT/Intake/Extend/IntakeExtendSupply Current"][-1][0]
+    assert abs(last_t - pits.server_time_us() / 1e6) < 2.0
     res = an.analyze(cfg, data, final=True)
-    intake = res[0]
-    assert intake.status in ("pass", "warn"), an.report_text(res)
+    assert res[0].status in ("pass", "warn"), an.report_text(res)
 
 
 def test_topic_list(pits):
     uid = pits.subscribe(["/"], prefix=True, topics_only=True)
     assert wait_for(lambda: any(t.name == "/HOTVision/LEFT/connected" for t in pits.topics()))
     pits.unsubscribe(uid)
+
+
+def test_restart_keeps_subscriptions(pits):
+    """Competition lock stops and restarts the client: subscriptions must come back."""
+    reader = RobotStateReader(pits)
+    assert wait_for(lambda: reader.read().known)
+    pits.stop()
+    assert not pits.connected
+    pits.start(["127.0.0.1"])
+    assert wait_for(lambda: reader.read().known), "state subscription lost after restart"

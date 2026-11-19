@@ -155,7 +155,8 @@ class MainWindow(QMainWindow):
         self.badge.setStyleSheet(badge_style(color))
         host = self.ctx.nt.connected_host
         bits = [b for b in (st.event, st.match) if b]
-        self.match.setText(("  ".join(bits) + "   " if bits else "") + (f"NT: {host}" if host else ""))
+        nt = f"NT ({self.ctx.nt.backend}): {host}" if host else f"NT ({self.ctx.nt.backend})"
+        self.match.setText(("  ".join(bits) + "   " if bits else "") + nt)
         self.tray.setToolTip(f"HOTWire: {text}")
 
     def _show_lock(self, on: bool):

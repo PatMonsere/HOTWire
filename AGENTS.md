@@ -21,13 +21,20 @@ Read `README.md` for what users see. This file explains how the code fits togeth
 5. **Streams stop** when the Cameras tab is hidden, the window is minimized or closed to the tray, the gate fails or the app quits. Use HOTVision's overlay stream `/stream/<cam>/<pipeline>` (capped at ~30 fps, counted as a viewer). Don't use `/stream/<cam>/raw`: it has no fps cap.
 6. **HOTWire never publishes to NetworkTables.** It only subscribes. Keep it that way.
 
-## Windows constraint: Smart App Control
+## Two NetworkTables backends (and Windows Smart App Control)
 
-The team laptops have **Smart App Control** on. It blocks unsigned DLLs and EXEs. Consequences:
+Windows **Smart App Control** blocks unsigned DLLs and EXEs, and it is on for some team laptops. With it on, robotpy's `pyntcore` can't load. So there are two clients with the same interface (`connected`, `connected_host`, `connect_time`, `backend`, `start/stop`, `subscribe/unsubscribe`, `add_listener`, `get`, `get_timestamped`, `topics`, `server_time_us`):
 
-- `pyntcore`/robotpy native libraries are blocked, so `hotwire/nt4.py` is a **pure-Python NT4 client** (WebSocket via `websocket-client`, MessagePack via `msgpack`), and `hotwire/pitcheck/wpilog.py` is a pure-Python `.wpilog` reader.
+- `hotwire/nt_pyntcore.py`: `PyntcoreClient`, the official WPILib library. Preferred.
+- `hotwire/nt4.py`: `NT4Client`, a pure-Python NT4 client (WebSocket via `websocket-client`, MessagePack via `msgpack`).
+
+`nt4.make_client(settings.nt_backend, port)` chooses between them: `"auto"` uses pyntcore if it loads and falls back to built-in, or you can force `"pyntcore"` or `"builtin"`. Both clients must keep their subscriptions across `stop()`/`start()`, because the competition lock does that. The tests run against both.
+
+Other consequences of Smart App Control:
+
+- `hotwire/pitcheck/wpilog.py` is a pure-Python `.wpilog` reader, so it doesn't depend on robotpy.
 - No PyInstaller `.exe`. `install.ps1` creates a venv on the signed python.org Python 3.13 and makes shortcuts that run `pythonw -m hotwire`.
-- PySide6, numpy, paramiko/cryptography, msgpack and ruamel.yaml load fine. Before adding a dependency with native code, check that it imports on a Smart App Control machine.
+- PySide6, numpy, paramiko/cryptography, msgpack and ruamel.yaml load even with Smart App Control on. Before adding a dependency with native code, keep the app working when that dependency is blocked.
 
 ## Layout
 
@@ -35,7 +42,8 @@ The team laptops have **Smart App Control** on. It blocks unsigned DLLs and EXEs
 hotwire/
   app.py            MainWindow: header (state badge + competition lock), tabs, activity log, tray, 1 s tick
   settings.py       Settings/Device/HostEntry dataclasses -> %APPDATA%\HOTWire\settings.json (HOTWIRE_HOME overrides)
-  nt4.py            NT4Client: background thread, reconnect, subscribe/unsubscribe, values, time sync
+  nt4.py            make_client() + NT4Client (built-in): background thread, reconnect, subscribe, values, time sync
+  nt_pyntcore.py    PyntcoreClient: same interface on the official pyntcore library
   robotstate.py     RobotStateReader (/DriverStation and /FMSInfo FMSControlData bits) + gate()
   sshconn.py        Paramiko connect (key or password, tries hosts in order, "via" jump through another device),
                     trust-on-first-use known_hosts in the app data folder, ensure_key/install_key/test_key

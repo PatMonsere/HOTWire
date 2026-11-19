@@ -27,7 +27,9 @@ Robot files are never deleted unless the downloaded copy matches the robot's own
 2. Clone this repo, then run `powershell -ExecutionPolicy Bypass -File install.ps1`.
 3. Start **HOTWire** from the Start menu or the desktop.
 
-There's no `.exe` on purpose: Windows **Smart App Control** blocks unsigned programs and DLLs. For the same reason HOTWire has its own pure-Python NetworkTables client instead of using `pyntcore`.
+HOTWire uses the official WPILib NetworkTables library (`pyntcore`). If Windows **Smart App Control** is on, it blocks pyntcore's DLLs, so HOTWire switches automatically to its own pure-Python NetworkTables client. **Settings → NetworkTables client** shows which one is in use and lets you force either one. For the same reason there's no `.exe`: Smart App Control blocks unsigned programs.
+
+On a programming laptop, we recommend turning Smart App Control off (Windows Security → App & browser control). It also blocks other robot tools.
 
 ## First-time setup
 

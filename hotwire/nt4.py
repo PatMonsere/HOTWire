@@ -55,12 +55,36 @@ class _Sub:
 ValueCallback = Callable[[str, int, object], None]
 
 
+def make_client(backend: str, port: int):
+    """Create a NetworkTables client.
+
+    backend: "auto" (pyntcore if it loads, else built-in), "pyntcore", "builtin".
+    Returns (client, description). pyntcore is the official WPILib library;
+    the built-in client works where Windows Smart App Control blocks its DLLs.
+    """
+    if backend in ("auto", "pyntcore"):
+        try:
+            from hotwire.nt_pyntcore import PyntcoreClient, available
+
+            ok, why = available()
+            if ok:
+                return PyntcoreClient(port=port), why
+            err = why
+        except Exception as e:  # ImportError / OSError: DLL blocked or not installed
+            err = f"{type(e).__name__}: {e}"
+        if backend == "pyntcore":
+            return NT4Client(port=port), f"built-in (pyntcore failed: {err[:120]})"
+    return NT4Client(port=port), "built-in"
+
+
 class NT4Client:
     """Background NT4 client with automatic reconnect.
 
     Call ``start(hosts)`` with a list of hosts to try in order.
     Read values with ``get(name)``; register ``add_listener`` for every value.
     """
+
+    backend = "builtin"
 
     def __init__(self, port: int = 5810, name: str = "HOTWire"):
         self.port = port

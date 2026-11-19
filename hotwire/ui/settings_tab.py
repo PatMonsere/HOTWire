@@ -161,6 +161,13 @@ class SettingsTab(QWidget):
         f.addRow("Camera sharpness minimum:", self.sharp)
         self.nt_dev = QComboBox()
         f.addRow("NetworkTables server device:", self.nt_dev)
+        self.nt_backend = QComboBox()
+        self.nt_backend.addItem("Auto (pyntcore if it loads, else built-in)", "auto")
+        self.nt_backend.addItem("pyntcore (official WPILib library)", "pyntcore")
+        self.nt_backend.addItem("Built-in (pure Python, works with Smart App Control)", "builtin")
+        self.nt_backend.setCurrentIndex(max(0, self.nt_backend.findData(s.nt_backend)))
+        f.addRow("NetworkTables client:", self.nt_backend)
+        f.addRow("", QLabel(f"In use now: {ctx.nt_backend_desc}  (changes apply after restarting HOTWire)"))
         self.key_path = QLineEdit(s.key_path)
         f.addRow("SSH key file:", _path_row(self.key_path, self, folder=False))
 
@@ -327,6 +334,10 @@ class SettingsTab(QWidget):
         s.lock_when_processes = [p.strip() for p in self.lock_procs.text().split(",") if p.strip()]
         s.stream_sharpness_min = self.sharp.value()
         s.nt_device = self.nt_dev.currentText()
+        new_backend = self.nt_backend.currentData()
+        if new_backend != s.nt_backend and not quiet:
+            QMessageBox.information(self, "Restart needed", "The NetworkTables client changes after you restart HOTWire.")
+        s.nt_backend = new_backend
         s.key_path = self.key_path.text().strip()
         s.devices = [Device.from_dict(_asdict(d)) for d in self.devices]
         s.save()

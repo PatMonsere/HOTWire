@@ -28,6 +28,7 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
 & .\.venv\Scripts\python.exe -m pip install --upgrade pip --quiet
 & .\.venv\Scripts\python.exe -m pip install -r requirements.txt --quiet
 & .\.venv\Scripts\python.exe -c "import PySide6, paramiko, websocket, msgpack, ruamel.yaml, numpy; print('Libraries OK')"
+& .\.venv\Scripts\python.exe -c "from hotwire.nt4 import make_client; print('NetworkTables client:', make_client('auto', 5810)[1])"
 
 $pythonw = Join-Path $root ".venv\Scripts\pythonw.exe"
 $shell = New-Object -ComObject WScript.Shell
