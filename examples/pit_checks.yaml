@@ -1,0 +1,74 @@
+# HOT 67 pit test checks: example for the 2026 "Rebuilt" robot (branch pit_test_mode).
+#
+# How it works
+#   1. Plug in the tether, open HOTWire > Pit Test, press "Start recording".
+#   2. Run the robot's pit test routine (Utility mode, driver 'back' button steps).
+#   3. Press "Stop & analyze". Each check below gets pass / warn / fail.
+#
+# Getting good limits: run the pit test on a robot you KNOW is healthy, then press
+# "Learn limits from this run…". HOTWire suggests limits from what it measured.
+# The numbers below are placeholders until you do that.
+#
+# Units are whatever the robot publishes: Kraken Position = rotations,
+# Velocity = rotations/s, Supply Current = amps.
+
+defaults:
+  warn_margin: 0.10      # up to 10 % past a limit = warn, more = fail
+  steady_fraction: 0.3   # "steady" = the last 30 % of each check's window
+  in_order: true         # checks are expected in this order (like the pit test steps)
+
+# alias: NetworkTables topic (Kraken.java publishes HOT/<Subsystem>/<Device>/<Subsystem><Device><Value>)
+signals:
+  intake_extend_pos:  HOT/Intake/Extend/IntakeExtendPosition
+  intake_extend_amps: HOT/Intake/Extend/IntakeExtendSupply Current
+  # NOTE: the three intake roller motors are all named "Roller", so they share one topic.
+  intake_roller_vel:  HOT/Intake/Roller/IntakeRollerVelocity
+  intake_roller_amps: HOT/Intake/Roller/IntakeRollerSupply Current
+  floor_vel:          HOT/Indexer/Floor/IndexerFloorVelocity
+  floor_amps:         HOT/Indexer/Floor/IndexerFloorSupply Current
+  kick_l_vel:         HOT/Indexer/LeftKick/IndexerLeftKickVelocity
+  kick_l_amps:        HOT/Indexer/LeftKick/IndexerLeftKickSupply Current
+  shooter_lt_vel:     HOT/Shooter/Left Top/ShooterLeft TopVelocity
+  shooter_lt_amps:    HOT/Shooter/Left Top/ShooterLeft TopSupply Current
+  hood_pos:           HOT/Shooter/Hood/ShooterHoodPosition
+  hood_amps:          HOT/Shooter/Hood/ShooterHoodSupply Current
+  drive_amps:         HOT/Drive/TotalCurrent
+
+checks:
+  - name: Intake extend
+    start_when: intake_extend_amps > 2
+    window: 2.0
+    expect:
+      intake_extend_amps: { peak_max: 40, steady: [0, 5] }
+      intake_extend_pos:  { min: -1, max: 30 }   # TODO: replace with final: <rotations>, tolerance: 0.3
+
+  - name: Intake rollers (agitate)
+    start_when: abs(intake_roller_vel) > 5
+    window: 2.0
+    expect:
+      intake_roller_vel:  { peak_min: 10 }       # proves the rollers actually spun
+      intake_roller_amps: { peak_max: 60, steady: [1, 20] }
+
+  - name: Indexer on
+    start_when: abs(floor_vel) > 5
+    window: 2.0
+    expect:
+      floor_vel:   { peak_min: 10 }
+      floor_amps:  { peak_max: 60, steady: [1, 20] }
+      kick_l_vel:  { peak_min: 10 }
+      kick_l_amps: { peak_max: 60, steady: [1, 20] }
+
+  - name: Shooter Batter preset
+    start_when: shooter_lt_vel > 5
+    window: 3.0
+    expect:
+      # TODO: once you know the Batter speed: settle_to: <rps>, tolerance: 2, within: 1.5
+      shooter_lt_vel:  { peak_min: 20 }
+      shooter_lt_amps: { peak_max: 80, steady: [2, 30] }
+      hood_amps:       { peak_max: 30 }
+
+  - name: Circle drive
+    start_when: drive_amps > 10
+    window: 3.0
+    expect:
+      drive_amps: { peak_max: 150, steady: [5, 80] }

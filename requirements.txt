@@ -1,0 +1,6 @@
+PySide6>=6.8
+paramiko>=3.4
+websocket-client>=1.7
+msgpack>=1.0
+ruamel.yaml>=0.18
+numpy>=1.26
