@@ -9,12 +9,14 @@ from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMenu,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QSystemTrayIcon,
     QTabWidget,
@@ -31,6 +33,7 @@ from hotwire.ui.jetson_tab import JetsonTab
 from hotwire.ui.logs_tab import LogsTab
 from hotwire.ui.pit_tab import PitTab
 from hotwire.ui.settings_tab import SettingsTab
+from hotwire.ui.signals_tab import SignalsTab
 
 
 def running_processes() -> set[str]:
@@ -75,14 +78,27 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.logs_tab = LogsTab(ctx)
         self.pit_tab = PitTab(ctx)
+        self.signals_tab = SignalsTab(ctx)
         self.cams_tab = CamerasTab(ctx)
         self.jetson_tab = JetsonTab(ctx)
         self.settings_tab = SettingsTab(ctx)
-        self.tabs.addTab(self.logs_tab, "Logs")
-        self.tabs.addTab(self.pit_tab, "Pit Test")
-        self.tabs.addTab(self.cams_tab, "Cameras")
-        self.tabs.addTab(self.jetson_tab, "Jetson")
-        self.tabs.addTab(self.settings_tab, "Settings")
+        # Each tab sits in a scroll area, so the window can be smaller than a tab
+        # (laptop screens): the tab scrolls instead of its bottom being cut off.
+        self._tab_pages: dict[QWidget, QScrollArea] = {}
+        for tab, name in (
+            (self.logs_tab, "Logs"),
+            (self.pit_tab, "Pit Test"),
+            (self.signals_tab, "Signals"),
+            (self.cams_tab, "Cameras"),
+            (self.jetson_tab, "Jetson"),
+            (self.settings_tab, "Settings"),
+        ):
+            page = QScrollArea()
+            page.setWidgetResizable(True)
+            page.setFrameShape(QFrame.Shape.NoFrame)
+            page.setWidget(tab)
+            self._tab_pages[tab] = page
+            self.tabs.addTab(page, name)
 
         self.activity = QPlainTextEdit()
         self.activity.setReadOnly(True)
@@ -180,6 +196,9 @@ class MainWindow(QMainWindow):
             self.lock_btn.setText("Competition lock: off")
             self.lock_btn.setStyleSheet("")
 
+    def show_tab(self, tab: QWidget) -> None:
+        self.tabs.setCurrentWidget(self._tab_pages[tab])
+
     # ------------------------------------------------------------ window
     def changeEvent(self, e):
         if e.type() == QEvent.Type.WindowStateChange:
@@ -187,7 +206,9 @@ class MainWindow(QMainWindow):
         super().changeEvent(e)
 
     def show_normal(self):
-        self.showNormal()
+        # un-minimize but keep maximized if it was
+        self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
+        self.show()
         self.raise_()
         self.activateWindow()
 
@@ -208,6 +229,7 @@ class MainWindow(QMainWindow):
 
     def _shutdown(self):
         self.cams_tab.stop_all()  # close camera streams -> HOTVision stops encoding
+        self.signals_tab.shutdown()
         if self.pit_tab.recorder is not None:
             self.pit_tab.stop_recording()
         self.ctx.stop_nt()
@@ -222,6 +244,7 @@ def main():
     ctx = AppContext(settings)
     w = MainWindow(ctx)
     app.aboutToQuit.connect(w._shutdown)
+    w.setWindowState(Qt.WindowState.WindowMaximized)  # also applies when shown later from the tray
     if settings.start_minimized:
         w.hide()
     else:

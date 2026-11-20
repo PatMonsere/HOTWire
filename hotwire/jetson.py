@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 import shlex
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -62,8 +63,35 @@ df -k / | tail -1 | awk '{print "disk_used="$3; print "disk_total="$2}'
 echo "uptime=$(cut -d' ' -f1 /proc/uptime)"
 echo "svc_active=$(systemctl is-active SERVICE)"
 echo "svc_restarts=$(systemctl show SERVICE -p NRestarts --value)"
-echo "usb_errors=$(journalctl -k -b --no-pager 2>/dev/null | grep -ciE 'usb.*(disconnect|error|reset)')"
+echo "usb_ok=1"
+journalctl -k -b --no-pager -o short-monotonic 2>/dev/null | grep -iE 'usb|over-?current' | tail -n 400 | sed 's/^/usbk=/'
 """
+
+# Kernel messages that look like USB errors but are harmless.
+USB_IGNORE = re.compile(r"fusb301", re.I)  # dev kit USB-C controller probe fails on every boot (error -22)
+USB_PROBLEM = re.compile(
+    r"\bUSB disconnect|over-?current|descriptor read|device not accepting address|"
+    r"unable to enumerate|cannot enable|error -\d+|reset .*USB device",
+    re.I,
+)
+# Devices are reset while they're first set up at boot; count resets only after this.
+USB_BOOT_SETTLE_S = 60.0
+
+
+def count_usb_errors(lines: list[str]) -> tuple[int, str]:
+    """(number of real USB problems this boot, the last one) from `journalctl -k -o short-monotonic` lines."""
+    n, last = 0, ""
+    for line in lines:
+        if USB_IGNORE.search(line) or not USB_PROBLEM.search(line):
+            continue
+        m = re.match(r"\s*\[\s*(\d+(?:\.\d+)?)\]", line)
+        t = float(m.group(1)) if m else None
+        if re.search(r"\breset\b", line, re.I) and not re.search(r"error|disconnect|over-?current", line, re.I):
+            if t is None or t < USB_BOOT_SETTLE_S:
+                continue
+        n += 1
+        last = line.strip()
+    return n, last
 
 
 def health(conn, dev: Device) -> dict:
@@ -74,8 +102,11 @@ def health(conn, dev: Device) -> dict:
 
 def parse_health(text: str) -> dict:
     kv = {}
+    usb_lines = []
     for line in text.splitlines():
-        if "=" in line:
+        if line.startswith("usbk="):
+            usb_lines.append(line[5:])
+        elif "=" in line:
             k, v = line.split("=", 1)
             kv[k.strip()] = v.strip()
     h: dict = {"temps": {}}
@@ -104,8 +135,85 @@ def parse_health(text: str) -> dict:
     h["uptime_s"] = float(kv["uptime"]) if kv.get("uptime", "").replace(".", "", 1).isdigit() else None
     h["service"] = kv.get("svc_active", "?")
     h["restarts"] = kv.get("svc_restarts", "?")
-    h["usb_errors"] = kv.get("usb_errors", "?")
+    if "usb_ok" in kv:
+        n, last = count_usb_errors(usb_lines)
+        h["usb_errors"], h["usb_last"] = str(n), last
+    else:
+        h["usb_errors"], h["usb_last"] = "?", ""
     return h
+
+
+# ------------------------------------------------------------ heartbeat (NT)
+HEARTBEAT_STALE_S = 1.5  # HOTVision publishes heartbeat/seq every 250 ms
+VIN_DIP_WARN = 0.85  # warn when the input voltage dips below 85 % of the highest seen
+
+
+@dataclass
+class HeartbeatView:
+    alive_text: str
+    alive_status: str
+    vin_text: str
+    vin_status: str
+    vin_min_text: str
+    vin_min_status: str
+    reboots: int
+    restarts: int
+    reboots_text: str
+
+
+@dataclass
+class HeartbeatWatch:
+    """Turns HOTVision heartbeat values into display text; remembers dips and reboots between updates."""
+
+    vin_high: float | None = None
+    vin_low: float | None = None
+    vin_low_at: str = ""
+    last_jetson_uptime: float | None = None
+    last_app_uptime: float | None = None
+    reboots: int = 0
+    restarts: int = 0
+
+    def update(self, seq_ts_us, now_us, jetson_uptime, app_uptime, vin, vin_min, clock: str = "") -> HeartbeatView:
+        age = (now_us - seq_ts_us) / 1e6 if seq_ts_us and now_us else None
+        if age is None:
+            alive = ("?", "info")
+        elif age < HEARTBEAT_STALE_S:
+            alive = ("alive", "pass")
+        else:
+            alive = (f"STOPPED: nothing for {age:.0f} s (HOTVision frozen, Jetson off, or network drop)", "fail")
+
+        if _num(jetson_uptime):
+            if self.last_jetson_uptime is not None and jetson_uptime < self.last_jetson_uptime - 5:
+                self.reboots += 1
+            self.last_jetson_uptime = jetson_uptime
+        if _num(app_uptime):
+            if self.last_app_uptime is not None and app_uptime < self.last_app_uptime - 5:
+                self.restarts += 1
+            self.last_app_uptime = app_uptime
+
+        if _num(vin):
+            self.vin_high = max(self.vin_high or vin, vin)
+        low = vin_min if _num(vin_min) else vin if _num(vin) else None
+        if low is not None and (self.vin_low is None or low < self.vin_low):
+            self.vin_low = low
+            self.vin_low_at = clock or datetime.now().strftime("%H:%M:%S")
+
+        if not _num(vin):
+            vin_t, vin_s = "not published (no INA3221 on this board?)", "info"
+        else:
+            vin_t, vin_s = f"{vin:.2f} V", "pass"
+        if self.vin_low is None:
+            low_t, low_s = "?", "info"
+        else:
+            dip = self.vin_high is not None and self.vin_low < VIN_DIP_WARN * self.vin_high
+            low_t = f"{self.vin_low:.2f} V at {self.vin_low_at}" + (" (DIP)" if dip else "")
+            low_s = "warn" if dip else "pass"
+        rb = f"Jetson rebooted {self.reboots}x, HOTVision restarted {self.restarts}x"
+        return HeartbeatView(*alive, vin_t, vin_s, low_t, low_s, self.reboots, self.restarts, rb)
+
+
+def _num(x) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
 
 
 def read_camera_config(conn, dev: Device) -> dict:

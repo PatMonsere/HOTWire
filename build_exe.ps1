@@ -11,7 +11,6 @@ Set-Location $root
 $py = ".\.venv\Scripts\python.exe"
 
 & $py -m pip install --quiet -r requirements.txt pyinstaller
-& $py tools\make_icon.py
 
 # Qt modules HOTWire doesn't use (keeps the exe much smaller)
 $exclude = @(
@@ -20,10 +19,11 @@ $exclude = @(
   "PySide6.Qt3DRender", "PySide6.QtMultimedia", "PySide6.QtMultimediaWidgets", "PySide6.QtPdf",
   "PySide6.QtPdfWidgets", "PySide6.QtDataVisualization", "PySide6.QtGraphs", "PySide6.QtLocation",
   "PySide6.QtPositioning", "PySide6.QtSensors", "PySide6.QtSerialPort", "PySide6.QtBluetooth",
-  "PySide6.QtNfc", "PySide6.QtSql", "PySide6.QtTest", "PySide6.QtDesigner", "PySide6.QtHelp",
+  "PySide6.QtNfc", "PySide6.QtSql", "PySide6.QtDesigner", "PySide6.QtHelp",
   "PySide6.QtSpatialAudio", "PySide6.QtTextToSpeech", "PySide6.QtRemoteObjects", "PySide6.QtScxml",
-  "PySide6.QtStateMachine", "PySide6.QtHttpServer", "PySide6.QtWebSockets", "PySide6.QtOpenGL",
-  "PySide6.QtOpenGLWidgets", "PySide6.QtSvgWidgets", "PySide6.QtUiTools", "PySide6.QtXml",
+  "PySide6.QtStateMachine", "PySide6.QtHttpServer", "PySide6.QtWebSockets",
+  "PySide6.QtSvgWidgets", "PySide6.QtUiTools", "PySide6.QtXml",
+  # (pyqtgraph needs QtOpenGL, QtOpenGLWidgets, QtSvg and QtTest: keep those)
   "tkinter", "pytest"
 ) | ForEach-Object { "--exclude-module"; $_ }
 
@@ -31,6 +31,7 @@ $exclude = @(
   --name HOTWire `
   --icon assets\hotwire.ico `
   --add-data "examples\pit_checks.yaml;examples" `
+  --add-data "assets\hotwire.ico;assets" `
   --collect-all ntcore --collect-all wpiutil --collect-all wpinet --collect-all native `
   @exclude `
   hotwire\__main__.py

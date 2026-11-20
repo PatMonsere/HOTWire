@@ -7,6 +7,7 @@ Control blocks; ``make_client`` falls back to the built-in client then.
 
 from __future__ import annotations
 
+import json
 import random
 import threading
 import time
@@ -156,7 +157,13 @@ class PyntcoreClient:
     def topics(self) -> list[Topic]:
         if self._inst is None:
             return []
-        out = [Topic(i.name, 0, i.type_str) for i in self._inst.getTopicInfo()]
+        out = []
+        for i in self._inst.getTopicInfo():
+            try:
+                props = json.loads(i.properties or "{}")
+            except (ValueError, TypeError, AttributeError):
+                props = {}
+            out.append(Topic(i.name, 0, i.type_str, props if isinstance(props, dict) else {}))
         return sorted(out, key=lambda t: t.name)
 
     def server_time_us(self) -> int:

@@ -74,10 +74,27 @@ class LogsTab(QWidget):
 
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["", "File", "Size", "Modified (robot clock)", "Status"])
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hdr = self.table.horizontalHeader()
+        for col in (0, 2, 3, 4):  # fit contents and header text ("Modified (robot clock)")
+            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.table.setMinimumHeight(90)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
+
+        sel = QHBoxLayout()
+        sel.addWidget(QLabel("Select:"))
+        for text, tip, pick in (
+            ("All", "Tick every file (files being written are skipped)", lambda f: True),
+            ("None", "Untick every file", lambda f: False),
+            ("New practice logs", "Tick practice logs that aren't saved on this laptop yet", self._is_new_practice),
+        ):
+            b = QPushButton(text)
+            b.setToolTip(tip)
+            b.clicked.connect(lambda _=False, p=pick: self._select(p))
+            sel.addWidget(b)
+        sel.addStretch(1)
 
         btns = QHBoxLayout()
         self.btn_refresh = QPushButton("Refresh")
@@ -95,6 +112,7 @@ class LogsTab(QWidget):
 
         lay = QVBoxLayout(self)
         lay.addLayout(top)
+        lay.addLayout(sel)
         lay.addWidget(self.table, 1)
         lay.addLayout(btns)
         lay.addWidget(self.progress)
@@ -214,6 +232,17 @@ class LogsTab(QWidget):
             if it and it.checkState() == Qt.CheckState.Checked:
                 out.append(self.files[row])
         return out
+
+    def _is_new_practice(self, f: logsync.RemoteFile) -> bool:
+        dev = self.device()
+        return not logsync.is_match_log(f) and not (dev and self.ctx.index.get(dev.name, f))
+
+    def _select(self, pick):
+        for row, f in enumerate(self.files):
+            it = self.table.item(row, 0)
+            if it is None or f.in_use:
+                continue
+            it.setCheckState(Qt.CheckState.Checked if pick(f) else Qt.CheckState.Unchecked)
 
     def download_selected(self):
         dev = self.device()

@@ -6,25 +6,30 @@ import json
 import os
 from datetime import datetime, timedelta
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QListWidget,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from hotwire import jetson, sshconn
+from hotwire.jetson import HeartbeatWatch
 from hotwire.settings import data_dir
 from hotwire.streams import http_get_json
 from hotwire.ui.common import Job, STATUS_COLORS
 
 STATE_FILE = "jetson_state.json"
+NT_ROOT = "/HOTVision"
+EVENT_TOPIC = f"{NT_ROOT}/events/last_event"
 
 
 def _load_state() -> dict:
@@ -51,6 +56,17 @@ class JetsonTab(QWidget):
         ("usb", "USB errors (this boot)"),
         ("uptime", "Uptime"),
     ]
+    HB_FIELDS = [
+        ("alive", "Heartbeat"),
+        ("vin", "Input voltage"),
+        ("vin_min", "Lowest input voltage seen"),
+        ("throttled", "Throttled (heat / over-current)"),
+        ("temps", "CPU / GPU temperature"),
+        ("reboots", "While watching"),
+        ("event_count", "Events since HOTVision started"),
+        ("usb_disc", "Camera USB disconnects"),
+    ]
+    event_arrived = Signal(int, str)
 
     def __init__(self, ctx):
         super().__init__()
@@ -64,7 +80,10 @@ class JetsonTab(QWidget):
         top.addWidget(self.dev_combo)
         top.addStretch(1)
         self.updated = QLabel("")
-        top.addWidget(self.updated)
+        # long SSH errors must not make the tab wider than the window (full text in the tooltip)
+        self.updated.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.updated.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        top.addWidget(self.updated, 1)
 
         box = QGroupBox("Health (updates every 5 s while this tab is open)")
         form = QFormLayout(box)
@@ -91,11 +110,35 @@ class JetsonTab(QWidget):
         b_open.clicked.connect(self._open_last)
         sl.addWidget(b_open)
 
+        # Heartbeat: published to the robot's NT by HOTVision (jetson-heartbeat branch)
+        hb = QGroupBox("Heartbeat (from HOTVision over NetworkTables)")
+        hl = QHBoxLayout(hb)
+        hform = QFormLayout()
+        self.hb_vals: dict[str, QLabel] = {}
+        for key, label in self.HB_FIELDS:
+            v = QLabel("-")
+            self.hb_vals[key] = v
+            hform.addRow(label + ":", v)
+        hl.addLayout(hform, 1)
+        ev = QVBoxLayout()
+        ev.addWidget(QLabel("Events (newest first):"))
+        self.events = QListWidget()
+        self.events.setMinimumWidth(420)
+        ev.addWidget(self.events)
+        hl.addLayout(ev, 2)
+
         lay = QVBoxLayout(self)
         lay.addLayout(top)
         lay.addWidget(box)
+        lay.addWidget(hb, 1)
         lay.addWidget(snap)
-        lay.addStretch(1)
+
+        self.hb = HeartbeatWatch()
+        self._hb_uid = None
+        self._event_seen: set = set()
+        self.event_arrived.connect(self._add_event)
+        self.hb_timer = QTimer(self)
+        self.hb_timer.timeout.connect(self._show_heartbeat)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.poll)
@@ -114,11 +157,79 @@ class JetsonTab(QWidget):
     def showEvent(self, e):
         self.timer.start(5000)
         QTimer.singleShot(100, self.poll)
+        if self._hb_uid is None:
+            nt = self.ctx.nt
+            self._hb_uid = nt.subscribe([f"{NT_ROOT}/heartbeat/"], prefix=True, periodic=0.25)
+            self._ev_uid = nt.subscribe([f"{NT_ROOT}/events/"], prefix=True, send_all=True)
+            nt.add_listener(self._on_nt_value)
+        self.hb_timer.start(1000)
+        self._show_heartbeat()
         super().showEvent(e)
 
     def hideEvent(self, e):
         self.timer.stop()
+        self.hb_timer.stop()
+        if self._hb_uid is not None:
+            nt = self.ctx.nt
+            nt.remove_listener(self._on_nt_value)
+            nt.unsubscribe(self._hb_uid)
+            nt.unsubscribe(self._ev_uid)
+            self._hb_uid = None
         super().hideEvent(e)
+
+    # ------------------------------------------------------------ heartbeat (NT)
+    def _on_nt_value(self, name, ts, value):
+        # NT thread: hand events to the UI thread
+        if name == EVENT_TOPIC and isinstance(value, str):
+            self.event_arrived.emit(int(ts), value)
+
+    def _add_event(self, ts: int, text: str):
+        key = (ts, text)
+        if key in self._event_seen:  # the server re-sends the last value on (re)subscribe
+            return
+        self._event_seen.add(key)
+        self.events.insertItem(0, f"{datetime.now():%H:%M:%S}  {text}")
+        while self.events.count() > 500:
+            self.events.takeItem(self.events.count() - 1)
+
+    def _show_heartbeat(self):
+        nt = self.ctx.nt
+        get = lambda k: nt.get(f"{NT_ROOT}/heartbeat/{k}")  # noqa: E731
+        seq = nt.get_timestamped(f"{NT_ROOT}/heartbeat/seq")
+        if seq is None:
+            for v in self.hb_vals.values():
+                v.setText("-")
+                v.setStyleSheet("")
+            self.hb_vals["alive"].setText(
+                "not published (robot NT not connected, or HOTVision is older than the jetson-heartbeat branch)"
+                if nt.connected else "robot NT not connected"
+            )
+            return
+        r = self.hb.update(
+            seq_ts_us=seq[0],
+            now_us=nt.server_time_us(),
+            jetson_uptime=get("jetson_uptime_s"),
+            app_uptime=get("app_uptime_s"),
+            vin=get("vin_v"),
+            vin_min=get("vin_min_v"),
+        )
+        self._hb_set("alive", r.alive_text, r.alive_status)
+        self._hb_set("vin", r.vin_text, r.vin_status)
+        self._hb_set("vin_min", r.vin_min_text, r.vin_min_status)
+        thr = get("throttled")
+        self._hb_set("throttled", {True: "YES", False: "no"}.get(thr, "?"), {True: "fail", False: "pass"}.get(thr, "info"))
+        temps = [get("cpu_temp_c"), get("gpu_temp_c")]
+        self._hb_set("temps", " / ".join("?" if t is None else f"{t:.0f} °C" for t in temps), "info")
+        self._hb_set("reboots", r.reboots_text, "warn" if r.reboots or r.restarts else "pass")
+        n = nt.get(f"{NT_ROOT}/events/event_count")
+        self._hb_set("event_count", "?" if n is None else f"{n:.0f}", "info")
+        u = nt.get(f"{NT_ROOT}/events/usb_disconnects")
+        self._hb_set("usb_disc", "?" if u is None else f"{u:.0f}", "info" if u is None else "pass" if u == 0 else "warn")
+
+    def _hb_set(self, key, text, status):
+        v = self.hb_vals[key]
+        v.setText(text)
+        v.setStyleSheet(f"color:{STATUS_COLORS[status]}; font-weight:600;")
 
     # ------------------------------------------------------------ health
     def poll(self):
@@ -148,6 +259,7 @@ class JetsonTab(QWidget):
         def fail(err):
             self.job = None
             self.updated.setText(err.splitlines()[0][:160])
+            self.updated.setToolTip(err)
 
         self.job = Job(work).start(done, fail)
 
@@ -178,10 +290,15 @@ class JetsonTab(QWidget):
             self._set("temp", f"{t:.1f} °C ({name})", "fail" if t >= 70 else "warn" if t >= 63 else "pass")
             self.temps.setText(", ".join(f"{k} {v:.0f}°" for k, v in sorted(temps.items())))
         u = h["usb_errors"]
-        self._set("usb", str(u), "pass" if u in ("0", "") else "warn")
+        self._set("usb", str(u), "pass" if u in ("0", "") else "info" if u == "?" else "warn")
+        self.vals["usb"].setToolTip(
+            f"Last one: {h['usb_last']}" if h.get("usb_last") else "Disconnects, over-current, descriptor read "
+            "errors and resets after boot. The harmless fusb301 boot message is not counted."
+        )
         up = h.get("uptime_s")
         self._set("uptime", str(timedelta(seconds=int(up))) if up else "?", "info")
         self.updated.setText(f"Updated {datetime.now():%H:%M:%S}")
+        self.updated.setToolTip("")
 
     # ------------------------------------------------------------ snapshot
     def _since_arg(self) -> str | None:

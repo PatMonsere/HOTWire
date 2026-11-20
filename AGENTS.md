@@ -33,7 +33,7 @@ Windows **Smart App Control** blocks unsigned DLLs and EXEs, and it is on for so
 Other consequences of Smart App Control:
 
 - `hotwire/pitcheck/wpilog.py` is a pure-Python `.wpilog` reader, so it doesn't depend on robotpy.
-- Two ways to ship HOTWire. `build_exe.ps1` makes a single-file PyInstaller `dist\HOTWire.exe` (unsigned, so it's blocked where Smart App Control is on). It bundles pyntcore's native DLLs with `--collect-all ntcore/wpiutil/wpinet/native` and `examples/pit_checks.yaml`, and excludes unused Qt modules. The exe is attached to GitHub Releases and not committed. `install.ps1`/`install.bat` create a venv on the signed python.org Python 3.13 with `pythonw -m hotwire` shortcuts, which works everywhere. Bundled data files are found through `sys._MEIPASS` when running frozen (see `pit_tab.EXAMPLE`).
+- Two ways to ship HOTWire. `build_exe.ps1` makes a single-file PyInstaller `dist\HOTWire.exe` (unsigned, so it's blocked where Smart App Control is on). It bundles pyntcore's native DLLs with `--collect-all ntcore/wpiutil/wpinet/native`, `examples/pit_checks.yaml` and `assets/hotwire.ico`, and excludes unused Qt modules. The exe is attached to GitHub Releases and not committed. `install.ps1`/`install.bat` create a venv on the signed python.org Python 3.13 with `pythonw -m hotwire` shortcuts, which works everywhere. Bundled data files are found through `sys._MEIPASS` when running frozen (see `pit_tab.EXAMPLE`).
 - PySide6, numpy, paramiko/cryptography, msgpack and ruamel.yaml load even with Smart App Control on. Before adding a dependency with native code, keep the app working when that dependency is blocked.
 
 ## Layout
@@ -51,6 +51,8 @@ hotwire/
                     download (.part + speed limit + cancel), sync_file (verify -> record -> delete)
   jetson.py         snapshot commands (journalctl, camera_config.json, system report), live health script + parser
   streams.py        TcpLink (direct or via SSH channel), http_get_json, StreamReader (MJPEG parse + quality stats)
+  signals.py        Signals tab data (UI-free): LiveBuffer, load_file (.wpilog/.csv), value_at, window_stats,
+                    topic tree, unit guesses, Layout/StripCfg/TraceCfg (saved as JSON)
   pitcheck/
     config.py       YAML schema + validation (ruamel round-trip so comments survive "Learn")
     analyze.py      analyze() for live and final mode, Metric/CheckResult, learn(), apply_suggestions()
@@ -58,9 +60,12 @@ hotwire/
     wpilog.py       read_wpilog(): numeric entries -> recording format
   ui/
     context.py      AppContext (QObject): settings, NT client, state, gate(), log(), signals
-    common.py       Job (background thread -> Qt signals), status colors, generated icon
+    common.py       Job (background thread -> Qt signals), status colors, app icon (HOT 67 logo, assets/hotwire.ico)
     logs_tab.py     Auto/Manual log sync UI
     pit_tab.py      recording, live analysis, chart (QtCharts), Learn dialog, YAML editor with signal picker
+    signals_tab.py  signal viewer: list panel, values panel, live/file sources, layouts
+    signal_strips.py pyqtgraph strips: shared time axis, L/R Y axes, mouse gestures, cursors, drag-drop targets
+    side_panel.py   MDA-style side panels: pop out on hover over the plot, or pinned in the splitter
     cameras_tab.py  stream tiles from /HOTVision NT topics (only cameras with a 'connected' topic)
     jetson_tab.py   health polling while visible, snapshots ("since last snapshot" uses the Jetson's clock)
     settings_tab.py settings form, device dialog, key setup, forget host key
@@ -74,9 +79,12 @@ tests/              pytest: logsync safety (LocalFS fake), analysis, config, wpi
 
 - **Recording**: `dict[topic, list[(t_seconds, value)]]`, sorted, values sample-and-hold. Topics always start with `/` (`nt4.norm()`). Live recordings use the robot's (server) timestamps.
 - **Robot NT topics** (from the robot repo `Rebuilt_Systemcore`, `frc/util/Kraken.java`): `/HOT/<Subsystem>/<Device>/<Subsystem><Device>{Position,Velocity,Supply Current}`. Setpoints are **not** published, so checks use fixed targets in YAML. The pit test routine (`RobotContainer.getPitTestRoutine`, branch `pit_test_mode`) runs in Utility mode, and the driver's *back* button moves to the next step. The step names are only `System.out` prints, so checks find their start with `start_when` rising edges, in order.
-- **HOTVision NT**: `/HOTVision/<cam>/{connected,capture_fps}`, `/HOTVision/<cam>/<pipeline>/{fps,latency,num_tags,...}`. `BACK` is a merged entry of BACK_LEFT and BACK_RIGHT and has no stream.
+- **HOTVision NT**: `/HOTVision/<cam>/{connected,capture_fps}`, `/HOTVision/<cam>/<pipeline>/{fps,latency,num_tags,...}`. `BACK` is a merged entry of BACK_LEFT and BACK_RIGHT and has no stream. From the HOTVision `jetson-heartbeat` branch: `/HOTVision/heartbeat/{seq,jetson_uptime_s,app_uptime_s,vin_v,vin_min_v,throttled,...}`, `/HOTVision/events/{last_event (sendAll),event_count,usb_disconnects}` and `/HOTVision/<cam>/status/...` (camera health, **not** a pipeline: `cameras_tab.NOT_PIPELINES`). The Jetson tab subscribes to heartbeat/events only while visible.
+- **USB errors** (`jetson.count_usb_errors`): kernel lines from this boot; the `fusb301` probe message is ignored, and resets count only after `USB_BOOT_SETTLE_S` of uptime.
 - **Analysis**: a check starts at the first **rising edge** of `start_when` after the previous check's start (`in_order`). `final=False` is live mode: incomplete windows are `running`, but a `peak_max` breach fails immediately. `learn()` never changes targets (`final`, `settle_to`, `tolerance`).
 - **Saved files**: logs go to `<save>/<device>/<EVENT>/<MATCH>/` for FRC_…_EVENT_MATCH.wpilog, otherwise `<save>/<device>/<date>/<relative path>`. Pit runs go to `<save>/PitTests/<stamp>/{recording.csv, report.txt, report.json, pit_checks.yaml}`. Jetson snapshots go to `<save>/<device>/snapshots/<stamp>/`.
+- **Signals tab**: live subscriptions only while the tab is visible: `"/"` at 0.5 s for the tree values, plus send-all for the plotted topics. They stop when the FMS is attached, NT is down or the lock is on. Plot time is seconds from the live session start (`live_t0`, server clock) or from the file's first sample. Values are drawn as steps (sample-and-hold, `stepMode="left"`). **Units are never guessed**: only the topic's `"unit"` property (`nt4.unit_of`; `Topic.properties` on both NT clients, the entry metadata in a `.wpilog`), else blank. Upper strips keep their time axis with `showValues=False`, because pyqtgraph draws the vertical grid from the axis. State: `<data dir>/signals_state.json`; named layouts: `<data dir>/signal_layouts/*.json`. pyqtgraph needs `QtOpenGL`, `QtOpenGLWidgets`, `QtSvg` and `QtTest`: don't exclude them in `build_exe.ps1`.
+- **Window**: opens maximized; each tab sits in a `QScrollArea` (`MainWindow.show_tab(tab)` selects one) so small laptop screens scroll instead of cutting off the bottom.
 - **UI threading**: all network or disk work runs in `Job` (a background thread). Results come back through Qt signals to the UI thread. Never block the UI thread on SSH or HTTP.
 
 ## Testing

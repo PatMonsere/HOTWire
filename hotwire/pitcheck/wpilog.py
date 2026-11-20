@@ -19,10 +19,12 @@ from hotwire.nt4 import norm
 NUMERIC = {"double", "float", "int64", "boolean"}
 
 
-def read_wpilog(path: str | Path, wanted_topics: list[str] | None = None):
+def read_wpilog(path: str | Path, wanted_topics: list[str] | None = None, metadata: dict | None = None):
     """Return ({topic: [(t_seconds, value)]}, {topic: type}) for numeric entries.
 
     wanted_topics: NT topic names (with or without leading '/'). None = all numeric.
+    metadata: if given, filled with {topic: entry metadata string} (for NT entries
+    DataLogManager stores the topic properties there as JSON, e.g. {"unit": "meter"}).
     """
     data = Path(path).read_bytes()
     if data[:6] != b"WPILOG":
@@ -66,10 +68,14 @@ def read_wpilog(path: str | Path, wanted_topics: list[str] | None = None):
                 q += 4 + ln
                 (ln,) = struct.unpack_from("<I", payload, q)
                 typ = payload[q + 4 : q + 4 + ln].decode("utf-8", "replace")
+                q += 4 + ln
                 topic = norm(name[3:]) if name.startswith("NT:") else norm(name)
                 if typ in NUMERIC and (wanted is None or topic in wanted):
                     entries[new_id] = (topic, typ)
                     types[topic] = typ
+                    if metadata is not None and q + 4 <= len(payload):
+                        (ln,) = struct.unpack_from("<I", payload, q)
+                        metadata[topic] = payload[q + 4 : q + 4 + ln].decode("utf-8", "replace")
             elif payload and payload[0] == 1 and len(payload) >= 5:
                 (fin,) = struct.unpack_from("<I", payload, 1)
                 entries.pop(fin, None)

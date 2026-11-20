@@ -19,7 +19,7 @@ import os
 import random
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 os.environ.setdefault("MSGPACK_PUREPYTHON", "")  # C extension is fine, pure fallback works too
@@ -42,6 +42,20 @@ class Topic:
     name: str
     id: int
     type: str
+    properties: dict = field(default_factory=dict)  # NT topic properties, e.g. {"unit": "meter"}
+
+
+def unit_of(properties) -> str:
+    """The unit a publisher put in the topic properties ("unit", WPILib convention), else ''."""
+    if isinstance(properties, str):
+        try:
+            properties = json.loads(properties) if properties.strip() else {}
+        except ValueError:
+            return ""
+    if not isinstance(properties, dict):
+        return ""
+    u = properties.get("unit", properties.get("units"))
+    return u if isinstance(u, str) else ""
 
 
 @dataclass
@@ -264,10 +278,20 @@ class NT4Client:
         for m in msgs if isinstance(msgs, list) else [msgs]:
             method, p = m.get("method"), m.get("params", {})
             if method == "announce":
-                t = Topic(p["name"], p["id"], p.get("type", ""))
+                props = p.get("properties") if isinstance(p.get("properties"), dict) else {}
+                t = Topic(p["name"], p["id"], p.get("type", ""), dict(props))
                 with self._lock:
                     self._topics_by_id[t.id] = t
                     self._topics_by_name[t.name] = t
+            elif method == "properties":  # property update: null deletes
+                with self._lock:
+                    t = self._topics_by_name.get(p.get("name", ""))
+                    if t is not None and isinstance(p.get("update"), dict):
+                        for k, v in p["update"].items():
+                            if v is None:
+                                t.properties.pop(k, None)
+                            else:
+                                t.properties[k] = v
             elif method == "unannounce":
                 with self._lock:
                     t = self._topics_by_id.pop(p.get("id"), None)

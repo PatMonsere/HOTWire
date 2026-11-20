@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import sys
 import threading
 import traceback
+from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
@@ -28,7 +30,16 @@ def badge_style(color: str) -> str:
     return f"background:{color}; color:white; border-radius:6px; padding:4px 10px; font-weight:600;"
 
 
+# The HOT 67 logo. In the .exe (PyInstaller) bundled files live under sys._MEIPASS.
+ICON_FILE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2])) / "assets" / "hotwire.ico"
+
+
 def make_icon() -> QIcon:
+    if ICON_FILE.exists():
+        icon = QIcon(str(ICON_FILE))
+        if not icon.isNull():
+            return icon
+    # Fallback if the logo file is missing: a red "HW" tile
     pm = QPixmap(64, 64)
     pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)

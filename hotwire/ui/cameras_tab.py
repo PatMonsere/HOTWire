@@ -28,6 +28,8 @@ from hotwire.streams import StreamReader, StreamStats
 from hotwire.ui.common import Job, STATUS_COLORS
 
 NT_ROOT = "/HOTVision"
+# Subtables under a camera that aren't pipelines (no stream): camera health from the heartbeat
+NOT_PIPELINES = {"status"}
 
 
 class Tile(QFrame):
@@ -225,7 +227,7 @@ class CamerasTab(QWidget):
                 cams.setdefault(cam, [])
                 if len(parts) == 4 and parts[3] == "connected":
                     real.add(cam)
-                if len(parts) >= 5 and parts[3] not in cams[cam]:
+                if len(parts) >= 5 and parts[3] not in NOT_PIPELINES and parts[3] not in cams[cam]:
                     cams[cam].append(parts[3])
         return {c: p for c, p in cams.items() if c in real}
 

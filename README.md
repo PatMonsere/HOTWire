@@ -2,10 +2,11 @@
 
 Pit laptop tool for FRC Team 67 (HOT). Plug the tether into the robot and HOTWire:
 
-- **Logs**: finds the robot's `.wpilog` / `.hoot` files, downloads them, checks each copy against the robot's own SHA-256, and only then deletes them from the robot. Files are sorted into `<save folder>/<device>/<EVENT>/<MATCH>/`. Point the save folder at a Google Drive for Desktop folder and the whole team gets the logs.
+- **Logs**: finds the robot's `.wpilog` / `.hoot` files, downloads them, checks each copy against the robot's own SHA-256, and only then deletes them from the robot. Files are sorted into `<save folder>/<device>/<EVENT>/<MATCH>/`. Point the save folder at a Google Drive for Desktop folder and the whole team gets the logs. **Select: All / None / New practice logs** ticks files for a manual download.
 - **Pit Test**: records robot signals from NetworkTables while you run the robot's pit test routine, then grades each step (current peaks, steady current, reaching and settling at speed or position). The checks live in an editable YAML file. **Learn limits from this run** suggests limits from a known-good robot.
+- **Signals**: a signal viewer in the style of CANape / INCA MDA, for live robot NetworkTables or a `.wpilog` / recording file. See [Signals tab](#signals-tab).
 - **Cameras**: live HOTVision streams from the Jetson, with checks for stalled, frozen, dark, washed-out or blurry pictures and low capture fps.
-- **Jetson**: live health (temperatures, CPU/GPU, memory, disk, service restarts, USB errors) and one-click snapshots (HOTVision journal, kernel log, `camera_config.json`, system report).
+- **Jetson**: live health (temperatures, CPU/GPU, memory, disk, service restarts, USB errors after boot), HOTVision's heartbeat from NetworkTables (alive, input voltage and the lowest dip seen, throttling, reboots, camera USB disconnects, and a list of events) and one-click snapshots (HOTVision journal, kernel log, `camera_config.json`, system report).
 - **Settings**: device IPs, a one-time password login that installs this laptop's SSH key, and a "via SystemCore" route to reach the Jetson when you're on the robot's Wi-Fi.
 
 ## Field safety
@@ -14,7 +15,7 @@ HOTWire never talks to the robot while it's on the field. It reads the robot's o
 
 | Robot state | HOTWire |
 |---|---|
-| FMS attached | **Field lock**: no SSH, downloads, streams or Jetson polling |
+| FMS attached | **Field lock**: no SSH, downloads, streams, Jetson polling or live Signals plotting |
 | Enabled | No downloads or deletes (streams and health OK) |
 | State unknown | Auto mode waits; manual actions ask "are you in the pits?" |
 | **Competition lock** button | No robot connections at all, NetworkTables included |
@@ -41,6 +42,30 @@ On a programming laptop, we recommend turning Smart App Control off (Windows Sec
 2. **Settings → Devices**: check the IPs (SystemCore `10.0.67.2`, Jetson `10.0.67.7`).
 3. Select each device and click **Set up key (password once)…**. The password is used once to install this laptop's key and is never saved.
 4. **Pit Test → Edit checks…** starts from `examples/pit_checks.yaml`. Run the pit test on a healthy robot, then **Learn limits from this run…**.
+
+## Signals tab
+
+Three panes: the **signal list** on the left, **strips** (plots that share one time axis) in the middle, and the **values** table on the right.
+
+- **Signal list**: hover over the **Signals** tab at the left edge and it slides out over the plot. It folds away when the mouse leaves. Click the tab (or 📌) to pin it open. The box at the top picks the source: **Live robot**, a recent file, or **Open log file…** (`.wpilog` or a HOTWire `recording.csv`). Search with words in any order (`shoot curr`). Drag signals onto a strip, onto the dashed bar for a new strip, or double-click to add them to the selected strip.
+- **Values**: each signal's unit (only when the robot publishes one: the NT topic's `"unit"` property, which WPILib unit topics set and DataLogManager stores in the `.wpilog`. Otherwise it's left blank, never guessed), value at cursor C1 and C2, Δ (C2−C1), and min/max over the visible time. Click ■ to change a color, untick to hide, right-click for the right Y axis / move / remove, drag a row onto another strip.
+
+| Mouse / key | Does |
+|---|---|
+| Wheel | Zoom time around the mouse |
+| Ctrl + wheel | Zoom this strip's Y axes |
+| Left drag | Pan time |
+| Right drag | Box zoom |
+| Click / Shift + click | Cursor C1 / C2. Ticking **2 cursors** puts both on screen (Δt, 1/Δt and value deltas); drag the lines to move them |
+| ← / → | Step the last-placed cursor one sample (of the signal selected in Values) |
+| Double-click, Home | Fit everything |
+| Backspace | Undo zoom |
+| Ctrl+B / Ctrl+F | Pin the signal list / search |
+| Right-click a strip | Fit Y, add strip below, clear, remove |
+
+**Live**: the view follows the last 10 s – 10 min (**Window**). Zooming, panning or placing a cursor pauses it; **Resume** jumps back to now. Only the plotted signals are subscribed at full rate, and only while the tab is open. Live plotting stops when the FMS is attached or the competition lock is on.
+
+**Layouts**: strips, signals, colors and axes. **Save as…** stores a named layout (e.g. "Shooter tuning") to reuse with any live session or log. The last view comes back when HOTWire starts.
 
 ## Pit checks file
 

@@ -56,6 +56,16 @@ for cam in ("LEFT", "FRONT", "BACK_LEFT", "BACK_RIGHT"):
     TOPICS[f"/HOTVision/{cam}/capture_fps"] = "double"
     TOPICS[f"/HOTVision/{cam}/apriltag/latency"] = "double"
     TOPICS[f"/HOTVision/{cam}/apriltag/num_tags"] = "int"
+    TOPICS[f"/HOTVision/{cam}/status/fps"] = "double"  # heartbeat camera health (not a pipeline)
+# HOTVision heartbeat and events (jetson-heartbeat branch)
+for key in ("seq", "jetson_uptime_s", "app_uptime_s", "cpu_temp_c", "gpu_temp_c", "vin_v", "vin_min_v"):
+    TOPICS[f"/HOTVision/heartbeat/{key}"] = "double"
+TOPICS["/HOTVision/heartbeat/throttled"] = "boolean"
+TOPICS["/HOTVision/events/last_event"] = "string"
+TOPICS["/HOTVision/events/event_count"] = "double"
+TOPICS["/HOTVision/events/usb_disconnects"] = "double"
+# Topic properties, like a WPILib unit topic publishes ("unit" = the unit's name)
+PROPERTIES = {"/HOT/Robot/BatteryVoltage": {"unit": "volt"}}
 TYPE_IDS = {"boolean": 0, "double": 1, "int": 2, "float": 3, "string": 4, "struct:ControlWord": 5}
 
 
@@ -174,7 +184,8 @@ class Client(threading.Thread):
         for name, typ in TOPICS.items():
             if name not in self.announced and self.matches(name):
                 self.announced.add(name)
-                msgs.append({"method": "announce", "params": {"name": name, "id": IDS[name], "type": typ, "properties": {}}})
+                props = PROPERTIES.get(name, {})
+                msgs.append({"method": "announce", "params": {"name": name, "id": IDS[name], "type": typ, "properties": props}})
         if msgs:
             self.send_frame(1, json.dumps(msgs).encode())
 
@@ -250,6 +261,7 @@ def main():
     threading.Thread(target=accept_loop, daemon=True).start()
     t_start = time.monotonic()
     last_ctrl = 0.0
+    last_seq, n_events = -1, 0
     while True:
         t = time.monotonic() - t_start
         vals = pit_signals(t)
@@ -258,6 +270,19 @@ def main():
             vals[f"/HOTVision/{cam}/capture_fps"] = 119.5 if cam != "FRONT" else 60.0
             vals[f"/HOTVision/{cam}/apriltag/latency"] = 18.0
             vals[f"/HOTVision/{cam}/apriltag/num_tags"] = 2
+            vals[f"/HOTVision/{cam}/status/fps"] = 119.5
+        seq = int(t / 0.25)
+        if seq != last_seq:
+            last_seq = seq
+            hb = "/HOTVision/heartbeat/"
+            vals.update({hb + "seq": float(seq), hb + "jetson_uptime_s": 3600 + t, hb + "app_uptime_s": 600 + t,
+                         hb + "cpu_temp_c": 48.0, hb + "gpu_temp_c": 46.0, hb + "throttled": False,
+                         hb + "vin_v": 12.2, hb + "vin_min_v": 12.1})
+            if seq % 8 == 0:  # an event every 2 s
+                n_events += 1
+                vals["/HOTVision/events/last_event"] = f"fake: test event #{n_events}"
+                vals["/HOTVision/events/event_count"] = float(n_events)
+                vals["/HOTVision/events/usb_disconnects"] = 0.0
         if t - last_ctrl > 0.5:  # control word / FMS info twice a second
             last_ctrl = t
             vals.update({k: v for k, v in state["values"].items() if k.startswith("/DriverStation")})

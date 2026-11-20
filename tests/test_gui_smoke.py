@@ -55,11 +55,36 @@ def test_gui_smoke(tmp_path):
         for i in range(w.tabs.count()):
             w.tabs.setCurrentIndex(i)
             spin(0.6)
-        w.tabs.setCurrentWidget(w.cams_tab)
+        w.show_tab(w.cams_tab)
         spin(1.5)
         assert set(w.cams_tab.tiles) == {"LEFT", "FRONT", "BACK_LEFT", "BACK_RIGHT"}
+        pipes = w.cams_tab.tiles["LEFT"].pipe
+        assert [pipes.itemText(i) for i in range(pipes.count())] == ["apriltag"]  # not "status"
+        # Jetson tab: heartbeat and events from NT
+        w.show_tab(w.jetson_tab)
+        spin(3.0)
+        assert w.jetson_tab.hb_vals["alive"].text() == "alive", w.jetson_tab.hb_vals["alive"].text()
+        assert w.jetson_tab.hb_vals["vin"].text() == "12.20 V"
+        assert w.jetson_tab.events.count() >= 1
+        assert "fake: test event" in w.jetson_tab.events.item(0).text()
+        # Signals tab: live plot from NT
+        st = w.signals_tab
+        w.show_tab(st)
+        spin(1.2)
+        st.area.add_signals(["/HOT/Robot/BatteryVoltage", "/HOT/Drive/TotalCurrent"])
+        spin(1.5)
+        assert st.buffer.arrays("/HOT/Drive/TotalCurrent")[0].size > 10  # send-all samples arrived
+        a, b = st.area.x_range()
+        assert abs(b - st._live_now()) < 0.5  # following "now"
+        assert st.list_panel._items, "signal tree is empty"
+        assert st.unit("/HOT/Robot/BatteryVoltage") == "volt"  # from the topic's "unit" property
+        assert st.unit("/HOT/Drive/TotalCurrent") == ""  # no property: unitless, not guessed
+        # Logs tab select buttons (no files listed: must not crash)
+        w.logs_tab._select(lambda f: True)
+        # the window can shrink below the tabs' size (they scroll instead of being cut off)
+        assert w.minimumSizeHint().height() < 600, w.minimumSizeHint()
         # pit test: record a few seconds
-        w.tabs.setCurrentWidget(w.pit_tab)
+        w.show_tab(w.pit_tab)
         w.pit_tab.start_recording()
         spin(3.0)
         w.pit_tab.stop_recording()
