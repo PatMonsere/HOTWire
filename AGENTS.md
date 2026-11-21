@@ -20,6 +20,7 @@ Read `README.md` for what users see. This file explains how the code fits togeth
 4. **Passwords are never stored.** `sshconn.install_key` uses the password once to append the laptop's public key to `~/.ssh/authorized_keys`.
 5. **Streams stop** when the Cameras tab is hidden, the window is minimized, the gate fails or the app quits (closing the window quits the app). Use HOTVision's overlay stream `/stream/<cam>/<pipeline>` (capped at ~30 fps, counted as a viewer). Don't use `/stream/<cam>/raw`: it has no fps cap.
 6. **HOTWire never publishes to NetworkTables.** It only subscribes. Keep it that way.
+7. **Quitting leaves nothing behind.** Closing the window quits the app, and `MainWindow._shutdown()` (`hotwire/app.py`) stops everything HOTWire started: camera streams, Signals live plotting, pit recording, and the NT client (so the robot drops every subscription). **Any new feature that opens a stream, subscription, SSH session or background loop must be stopped there.** Never leave anything running or changed on the robot or Jetson. SSH is only for short tasks that close when done. A crash must be just as safe, so state on the robot side may only come from open connections that disappear with the process.
 
 ## Two NetworkTables backends (and Windows Smart App Control)
 

@@ -22,6 +22,8 @@ HOTWire never talks to the robot while it's on the field. It reads the robot's o
 
 Robot files are never deleted unless the downloaded copy matches the robot's own checksum, and the log file currently being written is never touched.
 
+**Closing HOTWire leaves nothing running on the robot.** Closing the window quits the app. Camera streams stop (HOTVision stops encoding them), and the NetworkTables connection and all its subscriptions go away. HOTWire never publishes to NetworkTables or changes robot settings, and SSH is only used for short tasks, so this holds even if the app crashes. If you close it during a log download, the robot's file is kept and only a partial `.part` file is left on the laptop.
+
 ## Install (Windows)
 
 **Easiest:** download `HOTWire.exe` from [Releases](https://github.com/PatMonsere/HOTWire/releases) and run it. You don't need to install anything. Windows may show "Windows protected your PC" because the exe isn't signed: click **More info → Run anyway**. If the laptop has **Smart App Control** on, Windows blocks the exe completely. Use the Python install below instead.
