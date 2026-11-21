@@ -213,14 +213,11 @@ class MainWindow(QMainWindow):
         self.activateWindow()
 
     def closeEvent(self, e):
-        if self.ctx.settings.minimize_to_tray and not self.quitting:
-            e.ignore()
-            self.cams_tab.stop_all()
-            self.hide()
-            self.tray.showMessage("HOTWire", "Still running in the tray. Right-click the icon to quit.", make_icon(), 3000)
-            return
+        # Closing the window quits HOTWire (it used to hide in the tray, which
+        # left it running unnoticed and blocked rebuilding the .exe).
         e.accept()
-        self.quit()
+        if not self.quitting:
+            self.quit()
 
     def quit(self):
         self.quitting = True
@@ -244,9 +241,9 @@ def main():
     ctx = AppContext(settings)
     w = MainWindow(ctx)
     app.aboutToQuit.connect(w._shutdown)
-    w.setWindowState(Qt.WindowState.WindowMaximized)  # also applies when shown later from the tray
+    w.setWindowState(Qt.WindowState.WindowMaximized)
     if settings.start_minimized:
-        w.hide()
-    else:
-        w.show()
+        # minimized to the taskbar (maximized again when restored), not hidden
+        w.setWindowState(Qt.WindowState.WindowMaximized | Qt.WindowState.WindowMinimized)
+    w.show()
     sys.exit(app.exec())

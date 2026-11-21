@@ -92,8 +92,7 @@ class Settings:
     # Practice logs stay on the robot until pulled in Manual mode.
     auto_match_logs_only: bool = True
     in_use_seconds: int = 60  # a robot file modified this recently is "in use"
-    minimize_to_tray: bool = True
-    start_minimized: bool = False
+    start_minimized: bool = False  # minimized to the taskbar; closing the window quits
     pit_config: str = ""  # "" = <save_folder>/pit_checks.yaml
     key_path: str = str(Path.home() / ".ssh" / "id_ed25519")
     nt_device: str = "SystemCore"  # NetworkTables server = this device's hosts

@@ -96,7 +96,8 @@ def test_gui_smoke(tmp_path):
         assert not ctx.nt.connected
         assert "LOCK" in w.badge.text()
         ctx.set_lock(False)
-        w.quit()
+        w.close()  # closing the window quits the app (no hiding in the tray)
+        assert w.quitting and not ctx.nt.connected
         assert not errors, errors
     finally:
         p.kill()

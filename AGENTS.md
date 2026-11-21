@@ -18,7 +18,7 @@ Read `README.md` for what users see. This file explains how the code fits togeth
 2. **Delete only after verification** (`hotwire/logsync.py: sync_file`). The robot file is removed only when the local SHA-256 equals the SHA-256 computed **on the robot** (`sha256sum`). If the robot can't hash, never auto-delete. On a mismatch, discard the local copy and keep the robot file.
 3. **Never touch the file being written.** `in_use` = modified within `in_use_seconds`, judged by the **robot's clock** (`date +%s`), because the SystemCore clock is often wrong.
 4. **Passwords are never stored.** `sshconn.install_key` uses the password once to append the laptop's public key to `~/.ssh/authorized_keys`.
-5. **Streams stop** when the Cameras tab is hidden, the window is minimized or closed to the tray, the gate fails or the app quits. Use HOTVision's overlay stream `/stream/<cam>/<pipeline>` (capped at ~30 fps, counted as a viewer). Don't use `/stream/<cam>/raw`: it has no fps cap.
+5. **Streams stop** when the Cameras tab is hidden, the window is minimized, the gate fails or the app quits (closing the window quits the app). Use HOTVision's overlay stream `/stream/<cam>/<pipeline>` (capped at ~30 fps, counted as a viewer). Don't use `/stream/<cam>/raw`: it has no fps cap.
 6. **HOTWire never publishes to NetworkTables.** It only subscribes. Keep it that way.
 
 ## Two NetworkTables backends (and Windows Smart App Control)

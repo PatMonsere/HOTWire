@@ -6,7 +6,7 @@
 - [x] Jetson tab: "USB errors" ignores the `fusb301` boot message; counts disconnects, over-current, descriptor read errors and resets after the first 60 s. Hover the number for the last one.
 - [x] Jetson tab: heartbeat section (alive, vin / lowest vin, throttled, reboots, USB disconnects, event list) from `/HOTVision/heartbeat` and `/HOTVision/events` on NT. Shows "not published" until the `jetson-heartbeat` branch is on the Jetson.
 - [x] Logs tab: "Modified (robot clock)" header fits; tabs scroll instead of being cut off on short screens (the window needed 833 px before).
-- [ ] Closing the window **quits the app** instead of hiding it in the tray (drop "minimize to tray" on close).
+- [x] Closing the window **quits the app** instead of hiding it in the tray ("minimize to tray" setting removed; "Start minimized" now minimizes to the taskbar).
 
 ## Signals tab
 Purpose: a quick **live** check in the pits ("look at this value while we get ready"). Match log analysis stays in AdvantageScope / CTRE Tuner X, which already load everything, so no more log-viewing features here (opening a `.wpilog` / `.csv` still works as it is).
