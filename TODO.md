@@ -8,6 +8,10 @@
 - [x] Logs tab: "Modified (robot clock)" header fits; tabs scroll instead of being cut off on short screens (the window needed 833 px before).
 - [x] Closing the window **quits the app** instead of hiding it in the tray ("minimize to tray" setting removed; "Start minimized" now minimizes to the taskbar).
 
+## Release
+- [ ] Bump `hotwire/__init__.py` `__version__` (still says 0.1.0; the window title and log show it). Release v0.2.0 was built from `signals-tab` with 0.1.0 in it.
+- [ ] Merge `signals-tab` into `main`.
+
 ## Signals tab
 Purpose: a quick **live** check in the pits ("look at this value while we get ready"). Match log analysis stays in AdvantageScope / CTRE Tuner X, which already load everything, so no more log-viewing features here (opening a `.wpilog` / `.csv` still works as it is).
 - [x] Phase 1: pop-out/pinned signal list, strips with shared time axis and L/R Y axes, wheel / drag / right-drag box zoom, 2 cursors with Δ, colors, saved layouts, live (+ basic .wpilog/.csv opening).
