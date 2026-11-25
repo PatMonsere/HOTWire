@@ -10,7 +10,7 @@
 
 ## Release
 - [x] Bump `hotwire/__init__.py` `__version__`: now 0.3.0 (release v0.2.0 was built from `signals-tab` with 0.1.0 in it).
-- [ ] Merge `signals-tab` into `main`.
+- [x] Merge `signals-tab` into `main` (with release v0.3.0, 2026-11-24).
 
 ## Signals tab
 Purpose: a quick **live** check in the pits ("look at this value while we get ready"). Match log analysis stays in AdvantageScope / CTRE Tuner X, which already load everything, so no more log-viewing features here (opening a `.wpilog` / `.csv` still works as it is).
