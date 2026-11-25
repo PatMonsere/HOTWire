@@ -9,7 +9,7 @@
 - [x] Closing the window **quits the app** instead of hiding it in the tray ("minimize to tray" setting removed; "Start minimized" now minimizes to the taskbar).
 
 ## Release
-- [ ] Bump `hotwire/__init__.py` `__version__` (still says 0.1.0; the window title and log show it). Release v0.2.0 was built from `signals-tab` with 0.1.0 in it.
+- [x] Bump `hotwire/__init__.py` `__version__`: now 0.3.0 (release v0.2.0 was built from `signals-tab` with 0.1.0 in it).
 - [ ] Merge `signals-tab` into `main`.
 
 ## Signals tab
@@ -22,10 +22,23 @@ Purpose: a quick **live** check in the pits ("look at this value while we get re
 ## Robot test day (first test on the real robot)
 Everything below has only run against `tools/fake_robot.py` so far. Write down what you see (screenshots of the Activity log help); anything that fails becomes a fix item.
 
+### Findings (2026-11-24)
+Fixed (check them on the robot next time):
+- [x] Signals tab: the signal list's name column can be widened (drag its edge; double-click the edge fits the longest name; the list scrolls sideways), and the popped-out list has a drag edge to make it wider. Hover a name for the full topic.
+- [x] Activity log at the bottom: half the height (drag the splitter for more).
+- [x] Cameras tab: each tile is about half the window wide and as tall as the camera's picture shape allows; one camera alone fills the width.
+- [x] Auto log pull with **"Auto mode pulls only FMS match logs"** unchecked: it did pull practice logs later the same day, so it works (the first try was probably still waiting for its 60 s re-check or the robot state).
+- [x] Logs tab: each file's row fills green as it downloads, stays green when saved, turns red if it failed.
+- [x] Signals tab: the plotted signals keep recording while you're on another tab (small send-all subscription), so the plot has no gap. The topic tree still only updates while the tab is open. Everything stops on FMS, lock, NT down or quit.
+- [x] Jetson tab: health in two columns, every temperature sensor on its own row (hottest first, colored).
+- [x] Settings tab: two fields per row, checkboxes two per row, device table tall enough for every device.
+- [x] Competition lock: **"Competition lock while running"** removed (the DS runs in practice and the pits too). The lock is the manual button; with the FMS attached the field gate already blocks SSH, downloads, deletes, streams and Signals live.
+- [x] Pit Test live view: a check is graded 0.5 s after its window ends (robot NT data arrives in ~100 ms batches), so it no longer shows **fail** for a moment before passing.
+- [x] With the FMS attached, HOTWire also drops its Cameras, Jetson heartbeat and battery NT subscriptions, so only the tiny DS/FMS one stays. They come back when the FMS is gone.
+
 ### Before you start
 - [ ] Laptop on the robot network (tether or radio). Note which, because download speed differs a lot.
 - [ ] Settings: SystemCore and Jetson hosts correct, SSH key installed on both (**Set up key (password once)…**), **Test connection** passes.
-- [ ] If the Driver Station runs on this laptop, leave **Competition lock while running** empty for this test, or HOTWire locks itself (no NT, no logs) as soon as `DriverStation.exe` starts. Test that setting separately at the end.
 - [ ] Note **Settings → NetworkTables client**: which backend loaded (pyntcore or built-in)? Test both if you can (force each one, restart).
 - [ ] Copy `%APPDATA%\HOTWire\settings.json` somewhere first, so you can go back.
 
@@ -86,6 +99,16 @@ After the test:
 - [ ] Download that session's `.wpilog` from the robot and **Analyze a log file…** on it: same checks found, similar results (timestamps come from the robot).
 - [ ] Copy the learned `pit_checks.yaml` into `examples/pit_checks.yaml` (or keep the team copy) and commit it.
 
+Pit test results (2026-11-24, two runs in `WPILIB_20261124_221123.wpilog`):
+- [x] The old checks missed the shooter and load/fire steps: the old checks used Shooter **Left Top**, which never published anything but 0. `examples/pit_checks.yaml` now has one check per robot step (11 checks) using Left Bottom / Right Top, with limits from both runs. The live recording gave the same numbers as the robot log.
+- [x] Learn made limits too tight (one run's 9 A roller peak became `peak_max: 11.2`, next run peaked at 47 A). Learn now suggests `peak_max` = 1.5 × peak (was 1.25).
+- [x] Re-run the pit test with the new checks and confirm all 11 pass (passed).
+- [x] Live view: the first check showed **fail** for a moment, then **pass**. Likely graded before the window's last NT samples arrived; live mode now waits 0.5 s past the window (see Findings). Confirm on the next run.
+- [ ] For the 2027 robot: new topic names and steps, so write a new checks file (same layout: one check per routine step, start_when on a signal that only changes at that step).
+- [ ] **Shooter Left Top** reads 0 the whole time (position, velocity, current). Is the motor there / on the CAN bus? `ShooterKraken.runVelocity` commands it.
+- [ ] **Intake didn't fully extend in run 2's load/fire steps**: stopped at 0.17 (should be 0.065) and held ~15 A for 6 s. Something in the way (balls?). The new checks fail 4a/4b when this happens.
+- [ ] The intake roller topic only has data from 2 of the 3 rollers' `update()` (`IntakeKraken.updateStats` skips `m_RollerKraken3`), on top of the shared name.
+
 Things that may need code or robot changes (write down what you hit):
 - [ ] The 3 intake "Roller" motors share one topic, so only one shows up. Rename them in the robot code.
 - [ ] No setpoints or step names on NT, so checks can only use fixed targets and `start_when` edges. If steps get mismatched, publishing the step name would fix it (see Robot code below).
@@ -98,7 +121,6 @@ Things that may need code or robot changes (write down what you hit):
 - [ ] USB error count on the real Jetson: is it 0 after a clean boot?
 
 ### Close
-- [ ] If you use it: put `DriverStation.exe` in **Competition lock while running**, start the DS: lock turns on; quit the DS: lock turns off and NT reconnects.
 - [ ] Close the window: HOTWire quits, nothing keeps running on the robot (no SSH sessions, no streams).
 
 ## Robot code (Rebuilt_Systemcore), needed by HOTWire features

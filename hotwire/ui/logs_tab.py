@@ -7,7 +7,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QRect, Qt, QTimer
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QRadioButton,
+    QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -30,6 +32,28 @@ from hotwire import logsync, sshconn
 from hotwire.ui.common import Job, status_color
 
 AUTO_RECHECK_S = 60  # while allowed, look for new files this often
+
+
+ROW_GREEN = QColor(60, 170, 90, 70)
+ROW_RED = QColor(200, 55, 55, 80)
+
+
+class RowProgressDelegate(QStyledItemDelegate):
+    """Paints each file's download progress as a bar sliding across its whole row:
+    green while downloading / when done, red when it failed."""
+
+    def __init__(self, tab: "LogsTab"):
+        super().__init__(tab.table)
+        self.tab = tab
+
+    def paint(self, painter, option, index):
+        state = self.tab.row_state.get(self.tab.row_key(index.row()))
+        if state is not None:
+            frac, color = state
+            view = self.tab.table.viewport()
+            bar = QRect(0, option.rect.top(), int(view.width() * max(0.0, min(frac, 1.0))), option.rect.height())
+            painter.fillRect(bar.intersected(option.rect), color)
+        super().paint(painter, option, index)
 
 
 def _size(n: int) -> str:
@@ -82,6 +106,9 @@ class LogsTab(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
+        # download progress per row: {file rel path: (fraction 0..1, color)}
+        self.row_state: dict[str, tuple[float, QColor]] = {}
+        self.table.setItemDelegate(RowProgressDelegate(self))
 
         sel = QHBoxLayout()
         sel.addWidget(QLabel("Select:"))
@@ -233,6 +260,13 @@ class LogsTab(QWidget):
                 out.append(self.files[row])
         return out
 
+    def row_key(self, row: int) -> str | None:
+        return self.files[row].rel if 0 <= row < len(self.files) else None
+
+    def _set_row(self, rel: str, frac: float, color: QColor) -> None:
+        self.row_state[rel] = (frac, color)
+        self.table.viewport().update()
+
     def _is_new_practice(self, f: logsync.RemoteFile) -> bool:
         dev = self.device()
         return not logsync.is_match_log(f) and not (dev and self.ctx.index.get(dev.name, f))
@@ -294,6 +328,8 @@ class LogsTab(QWidget):
         s = self.ctx.settings
         ctx = self.ctx
         self._set_busy(True, "Connecting…")
+        self.row_state.clear()
+        current: list[str] = []  # rel path of the file being downloaded (to mark it red if the job fails)
 
         def still_allowed():
             return ctx.gate(manual=not auto).allowed
@@ -321,7 +357,7 @@ class LogsTab(QWidget):
                     def prog(done, total, i=i, f=f):
                         if not still_allowed():
                             job.cancel.set()
-                        job.progress.emit(("bytes", i, len(targets), f.name, done, total))
+                        job.progress.emit(("bytes", i, len(targets), f.rel, done, total))
 
                     try:
                         r = logsync.sync_file(
@@ -329,8 +365,10 @@ class LogsTab(QWidget):
                         )
                     except logsync.Cancelled:
                         ctx.log(f"Cancelled: {f.rel}")
+                        job.progress.emit(("cancelled", f.rel))
                         break
                     results.append(r)
+                    job.progress.emit(("result", r))
                     ctx.log(f"{dev.name}: {f.rel}: {r.message}")
                 files = logsync.list_logs(fs, dev.log_dir, dev.log_exts, s.in_use_seconds)
                 return results, files, fs.disk(dev.log_dir)
@@ -338,11 +376,22 @@ class LogsTab(QWidget):
         def on_progress(p):
             if p[0] == "files":
                 self._show_files(p[1], p[2])
+            elif p[0] == "result":
+                r = p[1]
+                if "in use" not in r.message:
+                    self._set_row(r.rf.rel, 1.0, ROW_GREEN if r.ok else ROW_RED)
+                current.clear()
+            elif p[0] == "cancelled":
+                self.row_state.pop(p[1], None)
+                self.table.viewport().update()
+                current.clear()
             else:
-                _, i, n, name, done, total = p
+                _, i, n, rel, done, total = p
                 self.progress.setMaximum(max(total, 1))
                 self.progress.setValue(done)
-                self.status.setText(f"[{i + 1}/{n}] {name}  {_size(done)} / {_size(total)}")
+                self.status.setText(f"[{i + 1}/{n}] {Path(rel).name}  {_size(done)} / {_size(total)}")
+                current[:] = [rel]
+                self._set_row(rel, done / total if total else 0.0, ROW_GREEN)
 
         def on_done(res):
             results, files, disk = res
@@ -359,6 +408,8 @@ class LogsTab(QWidget):
                 self.status.setText(f"Up to date ({datetime.now():%H:%M:%S})")
 
         def on_fail(err):
+            for rel in current:
+                self._set_row(rel, 1.0, ROW_RED)
             self._failed(err, quiet=auto)
 
         self.job = Job(work).start(on_done, on_fail, on_progress)

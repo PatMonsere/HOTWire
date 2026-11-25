@@ -27,7 +27,6 @@ class AppContext(QObject):
         self.nt, self.nt_backend_desc = make_client(settings.nt_backend, settings.nt_port)
         self.state_reader = RobotStateReader(self.nt)
         self.state = RobotState()
-        self.process_lock = False  # set by MainWindow when a lock_when_processes program runs
         self._log_file = data_dir() / "hotwire.log"
         self._last_connect_time = 0.0
         self._batt_uid = None
@@ -61,7 +60,7 @@ class AppContext(QObject):
             self._batt_uid = self.nt.subscribe([self.settings.battery_topic], periodic=0.5)
 
     def battery_voltage(self) -> float | None:
-        if not self.settings.battery_topic.strip() or self.locked:
+        if not self.settings.battery_topic.strip() or self.locked or self._batt_uid is None:
             return None
         v = self.nt.get(self.settings.battery_topic)
         return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
@@ -69,7 +68,7 @@ class AppContext(QObject):
     # ---------------------------------------------------------------- lock
     @property
     def locked(self) -> bool:
-        return self.settings.competition_lock or self.process_lock
+        return self.settings.competition_lock
 
     def set_lock(self, on: bool) -> None:
         if self.settings.competition_lock == on:
@@ -77,11 +76,6 @@ class AppContext(QObject):
         self.settings.competition_lock = on
         self.settings.save()
         self._apply_lock()
-
-    def set_process_lock(self, on: bool) -> None:
-        if self.process_lock != on:
-            self.process_lock = on
-            self._apply_lock()
 
     def _apply_lock(self) -> None:
         if self.locked:
@@ -95,6 +89,13 @@ class AppContext(QObject):
     # ---------------------------------------------------------------- state
     def update_state(self) -> RobotState:
         self.state = self.state_reader.read() if not self.locked else RobotState()
+        # On the field (FMS attached) only the tiny DS/FMS subscription stays: drop the battery
+        # one too (Cameras, Jetson and Signals drop theirs on this same tick).
+        if self.state.fms_attached and self._batt_uid is not None:
+            self.nt.unsubscribe(self._batt_uid)
+            self._batt_uid = None
+        elif not self.state.fms_attached and self._batt_uid is None and not self.locked:
+            self.subscribe_battery()
         if self.nt.connected and self.nt.connect_time != self._last_connect_time:
             self._last_connect_time = self.nt.connect_time
             self.log(f"Robot NetworkTables connected ({self.nt.connected_host})")

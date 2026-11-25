@@ -8,7 +8,7 @@ panel then sits in the splitter next to the plot.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRect, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor, QPainter
 from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QSplitter, QToolButton, QVBoxLayout, QWidget
 
@@ -52,12 +52,33 @@ class EdgeTab(QWidget):
         p.end()
 
 
+class ResizeGrip(QWidget):
+    """Thin strip on the panel's inner edge: drag it to make a popped-out panel wider."""
+
+    dragged = Signal(int)  # global mouse x
+
+    def __init__(self):
+        super().__init__()
+        self.setFixedWidth(6)
+        self.setCursor(Qt.CursorShape.SizeHorCursor)
+        self.setToolTip("Drag to resize")
+
+    def mouseMoveEvent(self, e):
+        if e.buttons() & Qt.MouseButton.LeftButton:
+            self.dragged.emit(int(e.globalPosition().x()))
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.fillRect(self.rect(), self.palette().color(self.backgroundRole()).darker(115))
+        p.end()
+
+
 class PanelFrame(QFrame):
     """The panel's box: title bar with a pin button, then the content."""
 
     pin_toggled = Signal(bool)
 
-    def __init__(self, title: str, content: QWidget):
+    def __init__(self, title: str, content: QWidget, side: str = "left"):
         super().__init__()
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setAutoFillBackground(True)
@@ -73,15 +94,27 @@ class PanelFrame(QFrame):
         self.pin.setText("📌")
         self.pin.toggled.connect(self._pin_changed)
         head.addWidget(self.pin)
-        lay = QVBoxLayout(self)
+        col = QVBoxLayout()
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(2)
+        col.addLayout(head)
+        col.addWidget(content, 1)
+        # popped out, the panel floats over the plot: the grip on its inner edge resizes it
+        # (pinned, the splitter handle does that)
+        self.grip = ResizeGrip()
+        lay = QHBoxLayout(self)
         lay.setContentsMargins(2, 2, 2, 2)
         lay.setSpacing(2)
-        lay.addLayout(head)
-        lay.addWidget(content, 1)
+        if side == "right":
+            lay.addWidget(self.grip)
+        lay.addLayout(col, 1)
+        if side == "left":
+            lay.addWidget(self.grip)
         self._pin_changed(False)
 
     def _pin_changed(self, on: bool):
         self.pin.setToolTip("Unpin (pop out on hover)" if on else "Pin (keep open next to the plot)")
+        self.grip.setVisible(not on)
         self.pin_toggled.emit(on)
 
 
@@ -94,7 +127,8 @@ class SidePanel:
         self.side = side
         self.width = width
         self.pinned = False
-        self.frame = PanelFrame(title, content)
+        self.frame = PanelFrame(title, content, side)
+        self.frame.grip.dragged.connect(self._grip_dragged)
         self.edge = EdgeTab(title, side)
         self.edge.hovered.connect(self.open)
         self.edge.clicked.connect(lambda: self.set_pinned(True))
@@ -167,6 +201,15 @@ class SidePanel:
     def reposition(self) -> None:
         if not self.pinned and self.frame.isVisible():
             self._place()
+
+    def _grip_dragged(self, gx: int) -> None:
+        if self.pinned:
+            return
+        sg = self.splitter.geometry()
+        x = self.host.mapFromGlobal(QPoint(gx, 0)).x()
+        w = x - sg.left() if self.side == "left" else sg.right() - x
+        self.width = max(180, min(w, sg.width() - 60))
+        self._place()
 
     def _place(self) -> None:
         sg = self.splitter.geometry()

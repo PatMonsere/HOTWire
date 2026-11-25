@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -44,7 +45,11 @@ class Tile(QFrame):
         self.img = QLabel("stream off")
         self.img.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.img.setMinimumSize(320, 200)
+        # the picture never drives the layout: fit() sets the height from the tile width
+        self.img.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.img.setStyleSheet("background:#111; color:#888;")
+        self.aspect = 3 / 4  # height / width, updated from the first frame
+        self._fit_args: tuple[float, int | None] | None = None
         self.nt_line = QLabel()
         self.stream_line = QLabel()
         self.flags = QLabel()
@@ -66,7 +71,21 @@ class Tile(QFrame):
     def mousePressEvent(self, e):
         self.clicked.emit(self.cam)
 
+    def fit(self, width: float, max_h: int | None = None) -> None:
+        """Make the picture as tall as the tile width allows (keeping the camera's aspect ratio)."""
+        self._fit_args = (width, max_h)
+        h = int(width * self.aspect)
+        if max_h is not None:
+            h = min(h, max_h)
+        self.img.setFixedHeight(max(200, h))
+
     def show_frame(self, img: QImage):
+        if img.width() > 0:
+            aspect = img.height() / img.width()
+            if abs(aspect - self.aspect) > 0.01:
+                self.aspect = aspect
+                if self._fit_args:
+                    self.fit(*self._fit_args)
         self.img.setPixmap(
             QPixmap.fromImage(img).scaled(
                 self.img.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
@@ -116,6 +135,8 @@ class CamerasTab(QWidget):
         self.ctx = ctx
         self.tiles: dict[str, Tile] = {}
         self.solo: str | None = None
+        self._nt_uid = None
+        ctx.tick.connect(self._nt_sync)  # drop the subscription while the FMS is attached
         self.config_fps: dict[str, float] = {}
         self._confirmed_unknown = False
 
@@ -140,12 +161,13 @@ class CamerasTab(QWidget):
 
         self.grid_host = QWidget()
         self.grid = QGridLayout(self.grid_host)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(self.grid_host)
+        self.grid.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setWidget(self.grid_host)
         lay = QVBoxLayout(self)
         lay.addLayout(top)
-        lay.addWidget(scroll, 1)
+        lay.addWidget(self.scroll, 1)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
@@ -164,17 +186,42 @@ class CamerasTab(QWidget):
 
     # ------------------------------------------------------------ visibility
     def showEvent(self, e):
-        # NT4 only announces subscribed topics: subscribe to HOTVision while visible
-        if getattr(self, "_nt_uid", None) is None:
-            self._nt_uid = self.ctx.nt.subscribe([NT_ROOT + "/"], prefix=True, periodic=0.25)
+        self._nt_sync()
         super().showEvent(e)
 
     def hideEvent(self, e):
         self.stop_all()
-        if getattr(self, "_nt_uid", None) is not None:
+        self._nt_unsubscribe()
+        super().hideEvent(e)
+
+    def _nt_sync(self, _state=None):
+        """NT4 only announces subscribed topics: subscribe to HOTVision while visible,
+        but not while the robot is on the field (FMS attached)."""
+        if self.isVisible() and not self.ctx.state.fms_attached:
+            if self._nt_uid is None:
+                self._nt_uid = self.ctx.nt.subscribe([NT_ROOT + "/"], prefix=True, periodic=0.25)
+        else:
+            self._nt_unsubscribe()
+
+    def _nt_unsubscribe(self):
+        if self._nt_uid is not None:
             self.ctx.nt.unsubscribe(self._nt_uid)
             self._nt_uid = None
-        super().hideEvent(e)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._fit_tiles()
+
+    def _fit_tiles(self):
+        """Two tiles per row, each about half the window wide; one camera alone fills the width."""
+        vp = self.scroll.viewport()
+        m = self.grid.contentsMargins()
+        cols = 1 if self.solo else 2
+        inner = vp.width() - m.left() - m.right() - (cols - 1) * self.grid.horizontalSpacing()
+        w = inner / cols - 20  # tile frame and margins
+        max_h = vp.height() - 110 if self.solo else None  # room for the text lines under the picture
+        for t in self.tiles.values():
+            t.fit(w, max_h)
 
     def window_minimized(self, minimized: bool):
         if minimized:
@@ -210,6 +257,7 @@ class CamerasTab(QWidget):
             t.setVisible(cam is None or name == cam)
             if cam is not None and name != cam:
                 t.stop()
+        self._fit_tiles()
 
     # ------------------------------------------------------------ camera list (NT)
     def _cameras_from_nt(self) -> dict[str, list[str]]:
@@ -244,6 +292,7 @@ class CamerasTab(QWidget):
                 self.tiles[cam] = t
                 n = len(self.tiles) - 1
                 self.grid.addWidget(t, n // 2, n % 2)
+                self._fit_tiles()
             t = self.tiles[cam]
             if [t.pipe.itemText(i) for i in range(t.pipe.count())] != pipes:
                 t.pipe.clear()

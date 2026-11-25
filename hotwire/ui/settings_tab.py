@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -118,61 +119,78 @@ class SettingsTab(QWidget):
         self.ctx = ctx
         s = ctx.settings
 
+        # Two label + field pairs per row (and the checkboxes in a grid), so the
+        # whole tab fits on a laptop screen without scrolling.
         g = QGroupBox("General")
-        f = QFormLayout(g)
+        grid = QGridLayout(g)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(3, 1)
+        grid.setHorizontalSpacing(12)
+
+        def pair(row: int, col: int, label: str, field) -> None:
+            grid.addWidget(QLabel(label), row, col * 2)
+            if isinstance(field, QHBoxLayout):
+                grid.addLayout(field, row, col * 2 + 1)
+            else:
+                grid.addWidget(field, row, col * 2 + 1)
+
         self.save_folder = QLineEdit(s.save_folder)
-        f.addRow("Save logs to:", _path_row(self.save_folder, self, folder=True))
-        f.addRow("", QLabel("Tip: pick a folder inside the team's Google Drive (Drive for Desktop) to share logs."))
+        self.save_folder.setToolTip("Tip: pick a folder inside the team's Google Drive (Drive for Desktop) to share logs.")
+        pair(0, 0, "Save logs to:", _path_row(self.save_folder, self, folder=True))
         self.pit_config = QLineEdit(s.pit_config)
         self.pit_config.setPlaceholderText("(default: <save folder>/pit_checks.yaml)")
-        f.addRow("Pit checks file:", _path_row(self.pit_config, self, folder=False, filt="YAML (*.yaml *.yml)"))
+        pair(0, 1, "Pit checks file:", _path_row(self.pit_config, self, folder=False, filt="YAML (*.yaml *.yml)"))
+
         self.poll = QSpinBox()
         self.poll.setRange(1, 600)
         self.poll.setValue(s.poll_seconds)
-        f.addRow("Check every (s):", self.poll)
+        self.poll.setSuffix(" s")
+        pair(1, 0, "Check every:", self.poll)
         self.speed = QSpinBox()
         self.speed.setRange(0, 1_000_000)
         self.speed.setValue(s.speed_limit_kbps)
         self.speed.setSuffix(" KB/s  (0 = no limit)")
-        f.addRow("Download speed limit:", self.speed)
+        pair(1, 1, "Download speed limit:", self.speed)
+
         self.in_use = QSpinBox()
         self.in_use.setRange(5, 3600)
         self.in_use.setValue(s.in_use_seconds)
-        f.addRow("File 'in use' if modified within (s):", self.in_use)
-        self.del_after = QCheckBox("Delete robot files after a verified download")
-        self.del_after.setChecked(s.delete_after_verify)
-        f.addRow("", self.del_after)
-        self.match_only = QCheckBox("Auto mode pulls only FMS match logs (practice logs: use Manual)")
-        self.match_only.setChecked(s.auto_match_logs_only)
-        f.addRow("", self.match_only)
-        self.start_min = QCheckBox("Start minimized (to the taskbar)")
-        self.start_min.setChecked(s.start_minimized)
-        f.addRow("", self.start_min)
-        self.snap_on_connect = QCheckBox("Take a Jetson snapshot automatically when the robot connects")
-        self.snap_on_connect.setChecked(s.jetson_snapshot_on_connect)
-        f.addRow("", self.snap_on_connect)
-        self.lock_procs = QLineEdit(", ".join(s.lock_when_processes))
-        self.lock_procs.setPlaceholderText("e.g. DriverStation.exe   (empty = off)")
-        f.addRow("Competition lock while running:", self.lock_procs)
+        self.in_use.setSuffix(" s")
+        pair(2, 0, "File 'in use' if modified within:", self.in_use)
         self.sharp = QDoubleSpinBox()
         self.sharp.setRange(0, 100000)
         self.sharp.setValue(s.stream_sharpness_min)
         self.sharp.setSuffix("  (0 = don't judge)")
-        f.addRow("Camera sharpness minimum:", self.sharp)
+        pair(2, 1, "Camera sharpness minimum:", self.sharp)
+
         self.nt_dev = QComboBox()
-        f.addRow("NetworkTables server device:", self.nt_dev)
+        pair(3, 0, "NetworkTables server device:", self.nt_dev)
         self.nt_backend = QComboBox()
         self.nt_backend.addItem("Auto (pyntcore if it loads, else built-in)", "auto")
         self.nt_backend.addItem("pyntcore (official WPILib library)", "pyntcore")
         self.nt_backend.addItem("Built-in (pure Python, works with Smart App Control)", "builtin")
         self.nt_backend.setCurrentIndex(max(0, self.nt_backend.findData(s.nt_backend)))
-        f.addRow("NetworkTables client:", self.nt_backend)
-        f.addRow("", QLabel(f"In use now: {ctx.nt_backend_desc}  (changes apply after restarting HOTWire)"))
+        pair(3, 1, "NetworkTables client:", self.nt_backend)
+        grid.addWidget(QLabel(f"NT client in use now: {ctx.nt_backend_desc}  (changes apply after a restart)"), 4, 3)
+
         self.batt_topic = QLineEdit(s.battery_topic)
         self.batt_topic.setPlaceholderText("(empty = don't show)")
-        f.addRow("Battery voltage NT topic:", self.batt_topic)
+        pair(5, 0, "Battery voltage NT topic:", self.batt_topic)
         self.key_path = QLineEdit(s.key_path)
-        f.addRow("SSH key file:", _path_row(self.key_path, self, folder=False))
+        pair(5, 1, "SSH key file:", _path_row(self.key_path, self, folder=False))
+
+        self.del_after = QCheckBox("Delete robot files after a verified download")
+        self.del_after.setChecked(s.delete_after_verify)
+        self.match_only = QCheckBox("Auto mode pulls only FMS match logs (practice logs: use Manual)")
+        self.match_only.setChecked(s.auto_match_logs_only)
+        self.start_min = QCheckBox("Start minimized (to the taskbar)")
+        self.start_min.setChecked(s.start_minimized)
+        self.snap_on_connect = QCheckBox("Take a Jetson snapshot automatically when the robot connects")
+        self.snap_on_connect.setChecked(s.jetson_snapshot_on_connect)
+        checks = QGridLayout()
+        for i, cb in enumerate((self.del_after, self.match_only, self.start_min, self.snap_on_connect)):
+            checks.addWidget(cb, i // 2, i % 2)
+        grid.addLayout(checks, 6, 0, 1, 4)
 
         d = QGroupBox("Devices")
         dl = QVBoxLayout(d)
@@ -220,6 +238,10 @@ class SettingsTab(QWidget):
             hosts = ", ".join(h.host + (f" via {h.via}" if h.via else "") for h in d.hosts)
             for c, v in enumerate([d.name, d.kind, d.user, hosts, "yes" if d.auto else ""]):
                 self.table.setItem(r, c, QTableWidgetItem(v))
+        # tall enough to show every device (at least 2 rows) without scrolling
+        rows = max(2, len(self.devices))
+        h = self.table.horizontalHeader().sizeHint().height() + rows * self.table.verticalHeader().defaultSectionSize()
+        self.table.setMinimumHeight(h + 2 * self.table.frameWidth() + 4)
         cur = self.nt_dev.currentText() or self.ctx.settings.nt_device
         self.nt_dev.clear()
         self.nt_dev.addItems([d.name for d in self.devices])
@@ -334,7 +356,6 @@ class SettingsTab(QWidget):
         s.auto_match_logs_only = self.match_only.isChecked()
         s.start_minimized = self.start_min.isChecked()
         s.jetson_snapshot_on_connect = self.snap_on_connect.isChecked()
-        s.lock_when_processes = [p.strip() for p in self.lock_procs.text().split(",") if p.strip()]
         s.stream_sharpness_min = self.sharp.value()
         s.nt_device = self.nt_dev.currentText()
         new_backend = self.nt_backend.currentData()

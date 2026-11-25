@@ -83,9 +83,9 @@ def default_devices() -> list[Device]:
 class Settings:
     save_folder: str = str(Path.home() / "HOTWire Logs")
     poll_seconds: int = 5
+    # Manual lock: no robot connections at all. With the FMS attached, HOTWire
+    # already blocks everything except its NT subscription (robotstate.gate).
     competition_lock: bool = False
-    # Turn competition lock on automatically while one of these programs runs.
-    lock_when_processes: list[str] = field(default_factory=list)
     speed_limit_kbps: int = 0  # 0 = unlimited
     delete_after_verify: bool = True
     # Auto mode pulls only FMS match logs (event + match in the file name).

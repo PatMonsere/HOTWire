@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 import sys
 
 from PySide6.QtCore import QEvent, Qt, QTimer
@@ -34,20 +33,6 @@ from hotwire.ui.logs_tab import LogsTab
 from hotwire.ui.pit_tab import PitTab
 from hotwire.ui.settings_tab import SettingsTab
 from hotwire.ui.signals_tab import SignalsTab
-
-
-def running_processes() -> set[str]:
-    try:
-        out = subprocess.run(
-            ["tasklist", "/FO", "CSV", "/NH"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        ).stdout
-    except Exception:
-        return set()
-    return {line.split('","')[0].strip('"').lower() for line in out.splitlines() if line}
 
 
 class MainWindow(QMainWindow):
@@ -108,7 +93,9 @@ class MainWindow(QMainWindow):
         split = QSplitter(Qt.Orientation.Vertical)
         split.addWidget(self.tabs)
         split.addWidget(self.activity)
-        split.setSizes([650, 150])
+        split.setSizes([725, 75])  # activity log: a few lines; drag the splitter for more
+        split.setStretchFactor(0, 1)  # extra height (maximized window) goes to the tabs
+        split.setStretchFactor(1, 0)
 
         central = QWidget()
         lay = QVBoxLayout(central)
@@ -142,21 +129,12 @@ class MainWindow(QMainWindow):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
         self.timer.start(1000)
-        self._proc_check = 0
         self._show_lock(ctx.locked)
         ctx.log(f"HOTWire {__version__} started. Save folder: {ctx.settings.save_folder}")
 
     # ------------------------------------------------------------ tick
     def _tick(self):
         s = self.ctx.settings
-        if s.lock_when_processes:
-            self._proc_check += 1
-            if self._proc_check % 5 == 1:
-                running = running_processes()
-                hit = any(p.lower() in running for p in s.lock_when_processes)
-                self.ctx.set_process_lock(hit)
-        elif self.ctx.process_lock:
-            self.ctx.set_process_lock(False)
         st = self.ctx.update_state()
         if self.ctx.locked:
             text, color = "COMPETITION LOCK: no robot connections", STATUS_COLORS["fail"]

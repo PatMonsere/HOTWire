@@ -4,9 +4,10 @@
     middle strips with a shared time axis (hotwire/ui/signal_strips.py)
     right  values table: cursor values, delta, min/max in view, colors, axes
 
-Sources: live robot NetworkTables (read-only subscriptions while this tab is
-visible; paused when the FMS is attached or the competition lock is on), or a
-log file (.wpilog, HOTWire recording .csv).
+Sources: live robot NetworkTables (read-only subscriptions: the "/" topic tree
+only while this tab is visible, the plotted signals also while it's hidden so
+the plot has no hole; all stopped when the FMS is attached, the competition
+lock is on or NT drops), or a log file (.wpilog, HOTWire recording .csv).
 """
 
 from __future__ import annotations
@@ -80,12 +81,34 @@ class SignalTree(QTreeWidget):
         self.setDragEnabled(True)
         self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
         self.setUniformRowHeights(True)
+        # The Signal column fills the panel until you drag its edge; then it keeps your
+        # width and the list scrolls sideways (double-click the edge: fit the longest name).
         h = self.header()
-        h.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        h.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         h.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         h.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         h.setStretchLastSection(False)
         self.setColumnWidth(1, 90)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._user_sized = False
+        self._fitting = False
+        h.sectionResized.connect(self._section_resized)
+
+    def _section_resized(self, col: int, _old: int, _new: int):
+        if col == 0 and not self._fitting:
+            self._user_sized = True
+
+    def _fit_name_column(self):
+        if self._user_sized:
+            return
+        w = self.viewport().width() - self.columnWidth(1) - self.columnWidth(2)
+        self._fitting = True
+        self.setColumnWidth(0, max(w, 120))
+        self._fitting = False
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._fit_name_column()
 
     def selected_names(self) -> list[str]:
         out = []
@@ -197,6 +220,7 @@ class SignalListPanel(QWidget):
 
         add(None, tree, "")
         self.apply_filter()
+        self.tree._fit_name_column()
 
     def _all_folders(self):
         out = []
@@ -569,6 +593,7 @@ class SignalsTab(QWidget):
         self.timer = QTimer(self)
         self.timer.setInterval(RENDER_MS)
         self.timer.timeout.connect(self._tick)
+        self.ctx.tick.connect(self._background_check)
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(1000)
@@ -619,7 +644,9 @@ class SignalsTab(QWidget):
     def hideEvent(self, e):
         try:
             self.timer.stop()
-            self._stop_live()
+            # Keep recording the plotted signals (small send-all subscription) so the plot
+            # has no hole when you come back; drop the big "/" tree subscription.
+            self._stop_tree()
             self.left.close()
             self.right.close()
             self.save_state_soon()
@@ -771,15 +798,27 @@ class SignalsTab(QWidget):
         return None
 
     def _start_live(self):
+        nt = self.ctx.nt
+        if self._uid_tree is None:  # topic tree + values: only while the tab is visible
+            self._uid_tree = nt.subscribe(["/"], prefix=True, periodic=0.5)
         if self._listening:
             return
-        nt = self.ctx.nt
         self._listening = True
         nt.add_listener(self._on_value)
-        self._uid_tree = nt.subscribe(["/"], prefix=True, periodic=0.5)
         if self.live_t0 is None:
             self.live_t0 = nt.server_time_us() / 1e6
         self._resubscribe()
+
+    def _stop_tree(self):
+        if self._uid_tree is not None:
+            self.ctx.nt.unsubscribe(self._uid_tree)
+            self._uid_tree = None
+
+    def _background_check(self, _state=None):
+        """Once a second (app tick): while the tab is hidden, the plotted signals keep
+        recording only while live is allowed (no FMS, no lock, NT up) and a live source is used."""
+        if self._listening and not self.isVisible() and (not self.is_live() or self._live_allowed()):
+            self._stop_live()
 
     def _stop_live(self):
         if not self._listening:

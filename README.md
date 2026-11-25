@@ -15,7 +15,7 @@ HOTWire never talks to the robot while it's on the field. It reads the robot's o
 
 | Robot state | HOTWire |
 |---|---|
-| FMS attached | **Field lock**: no SSH, downloads, streams, Jetson polling or live Signals plotting |
+| FMS attached | **Field lock**: no SSH, downloads, streams, Jetson polling or live Signals plotting. NetworkTables stays connected but only reads the robot state |
 | Enabled | No downloads or deletes (streams and health OK) |
 | State unknown | Auto mode waits; manual actions ask "are you in the pits?" |
 | **Competition lock** button | No robot connections at all, NetworkTables included |
@@ -65,7 +65,7 @@ Three panes: the **signal list** on the left, **strips** (plots that share one t
 | Ctrl+B / Ctrl+F | Pin the signal list / search |
 | Right-click a strip | Fit Y, add strip below, clear, remove |
 
-**Live**: the view follows the last 10 s – 10 min (**Window**). Zooming, panning or placing a cursor pauses it; **Resume** jumps back to now. Only the plotted signals are subscribed at full rate, and only while the tab is open. Live plotting stops when the FMS is attached or the competition lock is on.
+**Live**: the view follows the last 10 s – 10 min (**Window**). Zooming, panning or placing a cursor pauses it; **Resume** jumps back to now. Only the plotted signals are subscribed at full rate. They keep recording while you look at another tab, so the plot has no gap when you come back (the full topic list only updates while the tab is open). Live plotting stops when the FMS is attached or the competition lock is on.
 
 **Layouts**: strips, signals, colors and axes. **Save as…** stores a named layout (e.g. "Shooter tuning") to reuse with any live session or log. The last view comes back when HOTWire starts.
 

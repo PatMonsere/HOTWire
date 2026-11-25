@@ -79,6 +79,28 @@ def test_gui_smoke(tmp_path):
         assert st.list_panel._items, "signal tree is empty"
         assert st.unit("/HOT/Robot/BatteryVoltage") == "volt"  # from the topic's "unit" property
         assert st.unit("/HOT/Drive/TotalCurrent") == ""  # no property: unitless, not guessed
+        # Signals keeps recording the plotted signals on another tab
+        w.show_tab(w.cams_tab)
+        spin(1.5)
+        assert st._listening and st._uid_tree is None and st._uid_plot is not None
+        assert w.cams_tab._nt_uid is not None and ctx._batt_uid is not None
+        # FMS attached: every subscription except the DS/FMS one is dropped, then comes back
+        import dataclasses
+
+        real_read = ctx.state_reader.read
+        ctx.state_reader.read = lambda: dataclasses.replace(real_read(), fms_attached=True)
+        spin(1.5)
+        assert w.cams_tab._nt_uid is None and ctx._batt_uid is None and not st._listening
+        assert "n/a" in w.battery.text()
+        w.show_tab(w.jetson_tab)
+        spin(1.5)
+        assert w.jetson_tab._hb_uid is None
+        ctx.state_reader.read = real_read
+        spin(1.5)
+        assert w.jetson_tab._hb_uid is not None and ctx._batt_uid is not None
+        w.show_tab(w.cams_tab)
+        spin(1.5)
+        assert w.cams_tab._nt_uid is not None
         # Logs tab select buttons (no files listed: must not crash)
         w.logs_tab._select(lambda f: True)
         # the window can shrink below the tabs' size (they scroll instead of being cut off)

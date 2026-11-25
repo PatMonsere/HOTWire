@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -85,16 +86,23 @@ class JetsonTab(QWidget):
         self.updated.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         top.addWidget(self.updated, 1)
 
+        # Health: the fields in two columns, then every temperature sensor in its own column
         box = QGroupBox("Health (updates every 5 s while this tab is open)")
-        form = QFormLayout(box)
+        bl = QHBoxLayout(box)
         self.vals: dict[str, QLabel] = {}
-        for key, label in self.FIELDS:
-            v = QLabel("-")
-            self.vals[key] = v
-            form.addRow(label + ":", v)
-        self.temps = QLabel("")
-        self.temps.setWordWrap(True)
-        form.addRow("All temperatures:", self.temps)
+        half = (len(self.FIELDS) + 1) // 2
+        for part in (self.FIELDS[:half], self.FIELDS[half:]):
+            form = QFormLayout()
+            for key, label in part:
+                v = QLabel("-")
+                self.vals[key] = v
+                form.addRow(label + ":", v)
+            bl.addLayout(form, 1)
+        tbox = QGroupBox("Temperatures")
+        self.temp_grid = QGridLayout(tbox)
+        self.temp_grid.setColumnStretch(1, 1)
+        self.temp_grid.addWidget(QLabel("-"), 0, 0)
+        bl.addWidget(tbox, 1)
 
         snap = QGroupBox("Snapshot: HOTVision journal, kernel log, camera_config.json, system report")
         sl = QHBoxLayout(snap)
@@ -137,6 +145,7 @@ class JetsonTab(QWidget):
         self._hb_uid = None
         self._event_seen: set = set()
         self.event_arrived.connect(self._add_event)
+        ctx.tick.connect(self._nt_sync)  # drop the subscriptions while the FMS is attached
         self.hb_timer = QTimer(self)
         self.hb_timer.timeout.connect(self._show_heartbeat)
 
@@ -157,11 +166,7 @@ class JetsonTab(QWidget):
     def showEvent(self, e):
         self.timer.start(5000)
         QTimer.singleShot(100, self.poll)
-        if self._hb_uid is None:
-            nt = self.ctx.nt
-            self._hb_uid = nt.subscribe([f"{NT_ROOT}/heartbeat/"], prefix=True, periodic=0.25)
-            self._ev_uid = nt.subscribe([f"{NT_ROOT}/events/"], prefix=True, send_all=True)
-            nt.add_listener(self._on_nt_value)
+        self._nt_sync()
         self.hb_timer.start(1000)
         self._show_heartbeat()
         super().showEvent(e)
@@ -169,13 +174,27 @@ class JetsonTab(QWidget):
     def hideEvent(self, e):
         self.timer.stop()
         self.hb_timer.stop()
+        self._nt_unsubscribe()
+        super().hideEvent(e)
+
+    def _nt_sync(self, _state=None):
+        """Heartbeat/events subscriptions only while visible and the robot isn't on the field (FMS)."""
+        if self.isVisible() and not self.ctx.state.fms_attached:
+            if self._hb_uid is None:
+                nt = self.ctx.nt
+                self._hb_uid = nt.subscribe([f"{NT_ROOT}/heartbeat/"], prefix=True, periodic=0.25)
+                self._ev_uid = nt.subscribe([f"{NT_ROOT}/events/"], prefix=True, send_all=True)
+                nt.add_listener(self._on_nt_value)
+        else:
+            self._nt_unsubscribe()
+
+    def _nt_unsubscribe(self):
         if self._hb_uid is not None:
             nt = self.ctx.nt
             nt.remove_listener(self._on_nt_value)
             nt.unsubscribe(self._hb_uid)
             nt.unsubscribe(self._ev_uid)
             self._hb_uid = None
-        super().hideEvent(e)
 
     # ------------------------------------------------------------ heartbeat (NT)
     def _on_nt_value(self, name, ts, value):
@@ -268,6 +287,19 @@ class JetsonTab(QWidget):
         v.setText(text)
         v.setStyleSheet(f"color:{STATUS_COLORS[status]}; font-weight:600;")
 
+    def _show_temps(self, temps: dict[str, float]) -> None:
+        """One row per sensor (name, value), hottest first, colored like 'Hottest sensor'."""
+        while self.temp_grid.count():
+            w = self.temp_grid.takeAt(0).widget()
+            if w is not None:
+                w.deleteLater()
+        for r, (name, t) in enumerate(sorted(temps.items(), key=lambda kv: -kv[1])):
+            st = "fail" if t >= 70 else "warn" if t >= 63 else "pass"
+            self.temp_grid.addWidget(QLabel(name + ":"), r, 0)
+            v = QLabel(f"{t:.1f} °C")
+            v.setStyleSheet(f"color:{STATUS_COLORS[st]}; font-weight:600;")
+            self.temp_grid.addWidget(v, r, 1)
+
     def _show(self, h: dict):
         def pct(x, warn, fail):
             if x is None:
@@ -288,7 +320,7 @@ class JetsonTab(QWidget):
             name, t = max(temps.items(), key=lambda kv: kv[1])
             # Orin NX passive (throttle) trip is 70 °C
             self._set("temp", f"{t:.1f} °C ({name})", "fail" if t >= 70 else "warn" if t >= 63 else "pass")
-            self.temps.setText(", ".join(f"{k} {v:.0f}°" for k, v in sorted(temps.items())))
+            self._show_temps(temps)
         u = h["usb_errors"]
         self._set("usb", str(u), "pass" if u in ("0", "") else "info" if u == "?" else "warn")
         self.vals["usb"].setToolTip(
