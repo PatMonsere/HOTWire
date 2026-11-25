@@ -71,6 +71,7 @@ hotwire/
     jetson_tab.py   health polling while visible, snapshots ("since last snapshot" uses the Jetson's clock)
     settings_tab.py settings form, device dialog, key setup, forget host key
 tools/fake_robot.py tiny NT4 server that simulates the robot (pit test signals, cameras, FMS/enabled flags)
+tools/nt_topics.py  read-only: list a server's NT topics, types and values (--port 6810 = SystemCore OS server)
 examples/pit_checks.yaml  example checks using the real robot's topic names
 tests/              pytest: logsync safety (LocalFS fake), analysis, config, wpilog, gate,
                     NT4 vs fake robot, MJPEG reader vs fake server, offscreen GUI smoke test

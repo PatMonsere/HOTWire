@@ -15,9 +15,7 @@
 ## Signals tab
 Purpose: a quick **live** check in the pits ("look at this value while we get ready"). Match log analysis stays in AdvantageScope / CTRE Tuner X, which already load everything, so no more log-viewing features here (opening a `.wpilog` / `.csv` still works as it is).
 - [x] Phase 1: pop-out/pinned signal list, strips with shared time axis and L/R Y axes, wheel / drag / right-drag box zoom, 2 cursors with Δ, colors, saved layouts, live (+ basic .wpilog/.csv opening).
-- [ ] Phase 2: a special **discrete strip** (like AdvantageScope) for booleans, strings and enums: one lane per signal, colored bars for true/false or each state, with the text shown in the bar (enabled, mechanism states, HOTVision events).
-- [ ] Phase 2: robot mode shading (disabled / auto / teleop) behind the live plots.
-- [ ] Phase 2: unit conversion per signal (e.g. rot/s → rpm), like AdvantageScope's "Convert Units…".
+- Phase 2 dropped (2026-11-24): AdvantageScope 2027 already does these, so use it instead: discrete fields (booleans, strings, enums), robot mode shading ("Show Robot Mode": auto / teleop / utility / disabled), and unit-aware graphs with conversion. AdvantageScope Lite also runs in the SystemCore web UI, with nothing to install.
 
 ## Robot test day (first test on the real robot)
 Everything below has only run against `tools/fake_robot.py` so far. Write down what you see (screenshots of the Activity log help); anything that fails becomes a fix item.
@@ -122,6 +120,15 @@ Things that may need code or robot changes (write down what you hit):
 
 ### Close
 - [ ] Close the window: HOTWire quits, nothing keeps running on the robot (no SSH sessions, no streams).
+
+## Ideas from AdvantageScope 2027 (Chief Delphi post, 2026-11-24)
+AdvantageScope now downloads SystemCore logs over SFTP and skips files already saved, but has no auto pull, verify-then-delete, field/enabled check or pit test grading. Those stay HOTWire's job.
+- [ ] **Robot state without robot code**: the SystemCore OS runs its own NetworkTables 4 server ("Systemcore Diagnostics" in AdvantageScope) with robot state and device IO, no user code needed. From the AdvantageScope source (`NT4.ts`: `NT4_PORTS_SYSTEMCORE = [6810]`): it's plain NT4 on **port 6810** (robot code's server is 5810; the Driver Station's is 6767), so HOTWire's NT clients can read it as they are, read-only. The source doesn't list its topics (AdvantageScope shows whatever is announced). Next robot day: list the topics on `10.0.67.2:6810` with `.venv\Scripts\python tools\nt_topics.py --port 6810` and look for the control word (enabled / FMS attached / mode). If it's there, read the robot state from 6810 so the field gate works even when robot code isn't running (today: "state unknown", and manual actions ask "are you in the pits?"). Device IO could also feed health checks.
+  - Where it's defined (checked 2026-11-24): the server is part of the SystemCore OS (Limelight firmware; `LimelightVision/systemcore-os-public` is only release notes and build examples, no source). WPILib's HAL connects to it as client "RobotProgram" (`allwpilib/hal/src/main/native/systemcore/SystemServer.cpp`, `ROBOT_SYSTEM_SERVER_NT_PORT 6810`), and some topics are defined in allwpilib, e.g. Expansion Hub `/rhsp/<usb>/connected` (`ExpansionHub.java`). DS data and battery voltage do **not** go over NT: the HAL gets them from **mrclib** (`org.wpilib.mrclib` maven headers, binary shipped in the OS image, source not public).
+  - **Probably not usable for the field gate yet**: the SystemcoreTesting AdvantageScope notes list "Robot mode and joystick data is not available in Systemcore diagnostics mode" as a known issue, to be fixed in a future release. Check again after OS / WPILib updates.
+- [ ] **More SystemCore addresses**: AdvantageScope now connects to `robot.local` by default, and its source has SystemCore's fixed addresses: USB `172.26.0.1` on Windows (`172.27.0.1` on Mac/Linux) and its own Wi-Fi access point `172.30.0.1` (`Preferences.ts: getRobotAddress`). Add `robot.local`, `172.26.0.1` and `172.30.0.1` after `10.0.67.2` in the default SystemCore addresses (they're tried in order), and check each one on the robot.
+- AdvantageScope's log download (for reference): SFTP as `systemcore` with the default password `systemcore`, refreshes the file list every 5 s, never deletes. HOTWire uses a key instead of a password, verifies on the robot and can delete.
+- [ ] **2027 robot code: WPILib Telemetry API**: makes it easy to publish units, setpoints and the pit test step name (the items below). With setpoints on NT, the 2027 pit checks can compare against real targets instead of fixed numbers.
 
 ## Robot code (Rebuilt_Systemcore), needed by HOTWire features
 - [ ] Publish battery voltage: `RobotController.getBatteryVoltage()` to `/HOT/Robot/BatteryVoltage` (header badge shows "n/a" until then).
