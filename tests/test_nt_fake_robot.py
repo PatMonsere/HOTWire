@@ -98,7 +98,7 @@ def test_record_pit_test_and_analyze(pits):
     rec = Recorder(pits, cfg.all_topics())
     assert wait_for(lambda: pits.connected)
     rec.start()
-    time.sleep(7.5)  # covers the intake check (fake cycle: intake at 2-6 s)
+    time.sleep(7.5)  # covers the intake extend check (fake cycle: extend at 2 s, done by ~3.7 s)
     rec.stop()
     data = rec.snapshot()
     n = len(data["/HOT/Intake/Extend/IntakeExtendSupply Current"])

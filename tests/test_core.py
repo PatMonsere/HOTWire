@@ -316,6 +316,15 @@ def test_analyze_pass():
     assert res[1].status == "missing"
 
 
+def test_live_grace_waits_for_late_data():
+    """Live: the newest samples arrive late (NT batches), so a window isn't graded right at its end."""
+    cfg = pc.load_text(CFG)
+    full = shooter_run()  # starts at 1.0 s, window 2 s -> ends at 3.0 s
+    late = {k: [p for p in s if p[0] <= 2.3] for k, s in full.items()}  # data up to 3.1 s not here yet
+    assert an.analyze(cfg, late, data_end=3.1, final=False, grace=0.5)[0].status == "running"
+    assert an.analyze(cfg, full, data_end=3.6, final=False, grace=0.5)[0].status == "pass"
+
+
 def test_analyze_fail_high_current_and_slow():
     cfg = pc.load_text(CFG)
     res = an.analyze(cfg, shooter_run(tau=0.6, amps_steady=30), final=True)
@@ -375,11 +384,11 @@ def test_example_config_against_fake_robot_signals():
     import sys
 
     sys.path.insert(0, str(Path(__file__).parents[1] / "tools"))
-    from fake_robot import pit_signals
+    from fake_robot import CYCLE, pit_signals
 
     cfg = pc.load(Path(__file__).parents[1] / "examples" / "pit_checks.yaml")
     rec: dict = {}
-    for i in range(0, 3000):
+    for i in range(0, int(CYCLE * 100)):
         t = i / 100
         for k, v in pit_signals(t).items():
             rec.setdefault(k, []).append((t, v))

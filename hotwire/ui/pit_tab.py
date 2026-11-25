@@ -43,6 +43,7 @@ from hotwire.ui.common import status_color
 # In the .exe (PyInstaller) bundled files live under sys._MEIPASS
 _BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
 EXAMPLE = _BASE / "examples" / "pit_checks.yaml"
+LIVE_GRACE_S = 0.5  # live: grade a check this long after its window ends (NT data arrives in batches)
 NUMERIC_TYPES = {"double", "float", "int", "boolean"}
 
 
@@ -257,7 +258,7 @@ class PitTab(QWidget):
     def run_analysis(self, final: bool, data_end: float | None = None):
         if self.cfg is None:
             return
-        self.results = an.analyze(self.cfg, self.rec, data_end=data_end, final=final)
+        self.results = an.analyze(self.cfg, self.rec, data_end=data_end, final=final, grace=LIVE_GRACE_S)
         self._fill_tree()
         overall = an.worst(r.status if r.status != "missing" else "fail" for r in self.results) if final else ""
         txt = an.summary(self.results)

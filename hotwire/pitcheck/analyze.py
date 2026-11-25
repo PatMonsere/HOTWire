@@ -183,7 +183,11 @@ def _metrics(cfg: PitConfig, alias: str, spec: dict, vals: np.ndarray, t0: float
 
 
 # ------------------------------------------------------------ analyze
-def analyze(cfg: PitConfig, rec: Recording, data_end: float | None = None, final: bool = False) -> list[CheckResult]:
+def analyze(
+    cfg: PitConfig, rec: Recording, data_end: float | None = None, final: bool = False, grace: float = 0.0
+) -> list[CheckResult]:
+    """grace (live mode): seconds to wait past a window's end before grading it, because the
+    robot sends NT updates in batches (~100 ms), so the newest samples arrive late."""
     if data_end is None:
         data_end = max((s[-1][0] for s in rec.values() if s), default=0.0)
     results: list[CheckResult] = []
@@ -195,7 +199,7 @@ def analyze(cfg: PitConfig, rec: Recording, data_end: float | None = None, final
             results.append(CheckResult(chk, "missing" if final else "waiting", note=f"never saw {chk.start_when}"))
             continue
         t1 = t0 + chk.window
-        complete = data_end >= t1
+        complete = data_end >= t1 + (0.0 if final else grace)
         tend = min(t1, data_end)
         metrics: list[Metric] = []
         for alias, spec in chk.expect.items():
@@ -273,7 +277,8 @@ def learn(cfg: PitConfig, rec: Recording) -> list[Suggestion]:
                 sugg.append(Suggestion(i, r.check.name, alias, key, spec.get(key), new, observed))
 
             if "peak_max" in keys:
-                add("peak_max", _nice(peak * 1.25), f"peak {peak:.3g}")
+                # start-up current spikes vary a lot from run to run (seen 9 A one run, 47 A the next)
+                add("peak_max", _nice(peak * 1.5), f"peak {peak:.3g}")
             if "peak_min" in keys:
                 add("peak_min", _nice(peak * 0.5), f"peak {peak:.3g}")
             if "steady" in keys:
