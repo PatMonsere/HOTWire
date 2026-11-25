@@ -37,3 +37,26 @@ $exclude = @(
   hotwire\__main__.py
 
 Write-Host ("Built: " + (Resolve-Path dist\HOTWire.exe) + "  " + [math]::Round((Get-Item dist\HOTWire.exe).Length / 1MB, 1) + " MB") -ForegroundColor Green
+
+# Release zip: the exe plus the current pit checks, so teams that already have an older
+# pit_checks.yaml in their save folder can copy the new one over it.
+$version = (& $py -c "import hotwire; print(hotwire.__version__)").Trim()
+$stage = "dist\HOTWire-$version"
+Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+New-Item -ItemType Directory $stage | Out-Null
+Copy-Item dist\HOTWire.exe, examples\pit_checks.yaml $stage
+@"
+HOTWire $version
+
+HOTWire.exe       run it, nothing to install (unsigned: "More info > Run anyway";
+                  blocked where Smart App Control is on, use install.bat from the source there)
+pit_checks.yaml   pit test checks for the current robot. HOTWire uses
+                  <save folder>\pit_checks.yaml: copy this file over it to get the new checks
+                  (your old one is replaced, so keep a copy if you changed it).
+"@ | Set-Content -Encoding utf8 "$stage\README.txt"
+$zip = "dist\HOTWire-$version.zip"
+Remove-Item -Force $zip -ErrorAction SilentlyContinue
+Compress-Archive -Path "$stage\*" -DestinationPath $zip
+Remove-Item -Recurse -Force $stage
+Write-Host ("Release zip: " + (Resolve-Path $zip)) -ForegroundColor Green
+Write-Host "Attach BOTH to the GitHub release: dist\HOTWire.exe and $zip"
