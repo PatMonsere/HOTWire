@@ -106,6 +106,10 @@ class Settings:
     battery_warn_v: float = 12.3  # yellow below this (resting voltage)
     battery_low_v: float = 12.0  # red below this: swap the battery
     jetson_snapshot_on_connect: bool = False
+    # Copy the Driver Station's own logs (console, errors, alerts) next to the robot logs.
+    copy_ds_logs: bool = True
+    ds_log_dir: str = r"C:\Users\Public\Documents\FIRSTDriverStation\Logs"
+    ds_log_days: int = 14  # only DS logs from the last N days
     stream_sharpness_min: float = 0.0  # 0 = don't judge sharpness
     devices: list[Device] = field(default_factory=default_devices)
 

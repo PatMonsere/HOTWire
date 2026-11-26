@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from hotwire import logsync, sshconn
+from hotwire import dslogs, logsync, sshconn
 from hotwire.ui.common import Job, status_color
 
 AUTO_RECHECK_S = 60  # while allowed, look for new files this often
@@ -72,6 +72,8 @@ class LogsTab(QWidget):
         self.job: Job | None = None
         self._last_auto = 0.0
         self._auto_pending = False
+        self.ds_job: Job | None = None
+        self._last_ds = 0.0
 
         top = QHBoxLayout()
         top.addWidget(QLabel("Device:"))
@@ -133,6 +135,13 @@ class LogsTab(QWidget):
             btns.addWidget(b)
         btns.addWidget(self.cb_delete)
         btns.addStretch(1)
+        self.btn_ds = QPushButton("Copy Driver Station logs")
+        self.btn_ds.setToolTip(
+            "Copy this laptop's Driver Station logs (robot console, errors, alerts) into the save folder,\n"
+            "next to the robot log of the same session (a 'ds' folder). Auto mode does this too."
+        )
+        self.btn_ds.clicked.connect(lambda: self.copy_ds_logs(manual=True))
+        btns.addWidget(self.btn_ds)
         self.progress = QProgressBar()
         self.progress.setVisible(False)
         self.status = QLabel("")
@@ -197,7 +206,39 @@ class LogsTab(QWidget):
     def _on_robot_connected(self):
         self._auto_pending = True  # tether just plugged in / robot booted
 
+    # ------------------------------------------------------------ Driver Station logs
+    def copy_ds_logs(self, manual: bool = False):
+        """Copies new DS logs from this laptop (local files only: no robot connection needed)."""
+        s = self.ctx.settings
+        if self.ds_job is not None or (not manual and not s.copy_ds_logs):
+            return
+        self._last_ds = time.time()
+        dev = self.device()
+        name = dev.name if dev else "SystemCore"
+        ctx = self.ctx
+
+        def work(job):
+            return dslogs.copy_new(s.ds_log_dir, s.save_folder, name, s.in_use_seconds, s.ds_log_days)
+
+        def done(res):
+            self.ds_job = None
+            for c in res:
+                ctx.log(f"Driver Station log {c.action}: {c.src.name} -> {c.dest.parent}")
+            if manual:
+                msg = f"Driver Station logs: {len(res)} copied or moved" if res else "Driver Station logs: up to date"
+                self.status.setText(msg)
+                if not Path(s.ds_log_dir).is_dir():
+                    self.status.setText(f"Driver Station log folder not found: {s.ds_log_dir}")
+
+        def fail(err):
+            self.ds_job = None
+            ctx.log(f"Driver Station logs: {err.splitlines()[0][:200]}")
+
+        self.ds_job = Job(work).start(done, fail)
+
     def _auto_tick(self):
+        if self.rb_auto.isChecked() and time.time() - self._last_ds > AUTO_RECHECK_S:
+            self.copy_ds_logs()
         if not self.rb_auto.isChecked() or self.job is not None:
             return
         dev = self.device()
@@ -406,6 +447,8 @@ class LogsTab(QWidget):
                 ctx.notify.emit("HOTWire", msg)
             else:
                 self.status.setText(f"Up to date ({datetime.now():%H:%M:%S})")
+            if ok:
+                self.copy_ds_logs()  # their DS logs can now go next to them
 
         def on_fail(err):
             for rel in current:

@@ -37,6 +37,12 @@ def test_gui_smoke(tmp_path):
         s.device("SystemCore").auto = False  # no SSH server here
         s.device("Jetson").hosts = [HostEntry("127.0.0.1")]
         s.pit_config = str(ROOT / "examples" / "pit_checks.yaml")
+        ds_dir = tmp_path / "ds_logs"  # never the laptop's real Driver Station folder
+        ds_dir.mkdir()
+        ds_name = time.strftime("FIRST_DS_%Y%m%d_%H%M%S.wpilog", time.gmtime(time.time() - 3600))
+        (ds_dir / ds_name).write_bytes(b"WPILOG fake")
+        os.utime(ds_dir / ds_name, (time.time() - 3600, time.time() - 3600))
+        s.ds_log_dir = str(ds_dir)
         s.save()
         ctx = AppContext(s)
         w = MainWindow(ctx)
@@ -109,6 +115,11 @@ def test_gui_smoke(tmp_path):
         assert w.cams_tab._nt_uid is not None
         # Logs tab select buttons (no files listed: must not crash)
         w.logs_tab._select(lambda f: True)
+        # Driver Station logs: copied into the save folder (a "ds" folder in the day's folder)
+        w.logs_tab.copy_ds_logs(manual=True)
+        spin(1.0)
+        assert list((tmp_path / "save" / "SystemCore").glob(f"*/ds/{ds_name}")), "DS log not copied"
+        assert (ds_dir / ds_name).exists()  # the original stays
         # the window can shrink below the tabs' size (they scroll instead of being cut off)
         assert w.minimumSizeHint().height() < 600, w.minimumSizeHint()
         # pit test: the robot's step shows live; record a few seconds

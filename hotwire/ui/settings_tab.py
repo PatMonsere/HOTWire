@@ -192,10 +192,21 @@ class SettingsTab(QWidget):
         self.start_min.setChecked(s.start_minimized)
         self.snap_on_connect = QCheckBox("Take a Jetson snapshot automatically when the robot connects")
         self.snap_on_connect.setChecked(s.jetson_snapshot_on_connect)
+        self.copy_ds = QCheckBox("Copy Driver Station logs next to the robot logs (Auto mode)")
+        self.copy_ds.setChecked(s.copy_ds_logs)
         checks = QGridLayout()
-        for i, cb in enumerate((self.del_after, self.match_only, self.start_min, self.snap_on_connect)):
+        for i, cb in enumerate((self.del_after, self.match_only, self.start_min, self.snap_on_connect, self.copy_ds)):
             checks.addWidget(cb, i // 2, i % 2)
         grid.addLayout(checks, 6, 0, 1, 4)
+
+        self.ds_dir = QLineEdit(s.ds_log_dir)
+        self.ds_dir.setToolTip("Where the 2027 Driver Station writes its FIRST_DS_*.wpilog files")
+        pair(7, 0, "Driver Station log folder:", _path_row(self.ds_dir, self, folder=True))
+        self.ds_days = QSpinBox()
+        self.ds_days.setRange(1, 365)
+        self.ds_days.setValue(s.ds_log_days)
+        self.ds_days.setSuffix(" days")
+        pair(7, 1, "Copy DS logs from the last:", self.ds_days)
 
         d = QGroupBox("Devices")
         dl = QVBoxLayout(d)
@@ -253,13 +264,13 @@ class SettingsTab(QWidget):
 
         self._dirty = False
         self._saved_state = self._form_state()
-        for w in (self.save_folder, self.pit_config, self.batt_topic, self.key_path):
+        for w in (self.save_folder, self.pit_config, self.batt_topic, self.key_path, self.ds_dir):
             w.textChanged.connect(self._check_dirty)
-        for w in (self.poll, self.speed, self.in_use, self.sharp):
+        for w in (self.poll, self.speed, self.in_use, self.sharp, self.ds_days):
             w.valueChanged.connect(self._check_dirty)
         for w in (self.nt_dev, self.nt_backend):
             w.currentIndexChanged.connect(self._check_dirty)
-        for w in (self.del_after, self.match_only, self.start_min, self.snap_on_connect):
+        for w in (self.del_after, self.match_only, self.start_min, self.snap_on_connect, self.copy_ds):
             w.toggled.connect(self._check_dirty)
 
     # ------------------------------------------------------------ unsaved changes
@@ -279,6 +290,9 @@ class SettingsTab(QWidget):
             self.match_only.isChecked(),
             self.start_min.isChecked(),
             self.snap_on_connect.isChecked(),
+            self.copy_ds.isChecked(),
+            self.ds_dir.text().strip(),
+            self.ds_days.value(),
             repr([_asdict(x) for x in self.devices]),
         )
 
@@ -310,6 +324,9 @@ class SettingsTab(QWidget):
         self.match_only.setChecked(s.auto_match_logs_only)
         self.start_min.setChecked(s.start_minimized)
         self.snap_on_connect.setChecked(s.jetson_snapshot_on_connect)
+        self.copy_ds.setChecked(s.copy_ds_logs)
+        self.ds_dir.setText(s.ds_log_dir)
+        self.ds_days.setValue(s.ds_log_days)
         self.devices = [Device.from_dict(_asdict(x)) for x in s.devices]
         self.nt_dev.setCurrentText(s.nt_device)
         self._fill_devices()
@@ -442,6 +459,9 @@ class SettingsTab(QWidget):
         s.auto_match_logs_only = self.match_only.isChecked()
         s.start_minimized = self.start_min.isChecked()
         s.jetson_snapshot_on_connect = self.snap_on_connect.isChecked()
+        s.copy_ds_logs = self.copy_ds.isChecked()
+        s.ds_log_dir = self.ds_dir.text().strip()
+        s.ds_log_days = self.ds_days.value()
         s.stream_sharpness_min = self.sharp.value()
         s.nt_device = self.nt_dev.currentText()
         new_backend = self.nt_backend.currentData()
