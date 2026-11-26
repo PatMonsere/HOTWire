@@ -123,6 +123,10 @@ class AppContext(QObject):
                     setattr(s, k, v)
         if self.system is not None:
             self.system.set_field_mode(s.fms_attached)
+            if s.fms_attached:
+                # on the field: show nothing from the health subscription just dropped (this
+                # read happened before it was dropped)
+                self.system_status = SystemStatus(connected=self.system_status.connected, control=sys_ctl)
         return s
 
     def update_state(self) -> RobotState:
