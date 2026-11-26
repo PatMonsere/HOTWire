@@ -90,7 +90,11 @@ class SignalTree(QTreeWidget):
         h.setStretchLastSection(False)
         self.setColumnWidth(1, 90)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setTextElideMode(Qt.TextElideMode.ElideMiddle)  # keep both ends of a long name
         self._user_sized = False
+        # opening or closing a folder changes which names are visible
+        self.itemExpanded.connect(lambda _it: self._fit_name_column())
+        self.itemCollapsed.connect(lambda _it: self._fit_name_column())
         self._fitting = False
         h.sectionResized.connect(self._section_resized)
 
@@ -101,9 +105,14 @@ class SignalTree(QTreeWidget):
     def _fit_name_column(self):
         if self._user_sized:
             return
-        w = self.viewport().width() - self.columnWidth(1) - self.columnWidth(2)
+        vw = self.viewport().width()
+        # A narrow panel drops the Type column first, so the names keep the room.
+        self.setColumnHidden(2, vw < 380)
+        rest = self.columnWidth(1) + (0 if self.isColumnHidden(2) else self.columnWidth(2))
+        names = self.sizeHintForColumn(0)  # longest visible name, with its indent
+        w = max(vw - rest, min(names, int(vw * 0.7)), 120)
         self._fitting = True
-        self.setColumnWidth(0, max(w, 120))
+        self.setColumnWidth(0, w)
         self._fitting = False
 
     def resizeEvent(self, e):
@@ -295,10 +304,30 @@ class ValuesTree(QTreeWidget):
         self.setDragEnabled(True)
         self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
         self.setUniformRowHeights(True)
+        # Columns fit their contents until you drag an edge; then they keep your width
+        # (double-click an edge: fit again). The list scrolls sideways when it's too wide.
         h = self.header()
-        h.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        h.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        h.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         h.setStretchLastSection(False)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._user_sized: set[int] = set()
+        self._fitting = False
+        h.sectionResized.connect(self._section_resized)
+
+    def _section_resized(self, col: int, _old: int, _new: int):
+        if not self._fitting:
+            self._user_sized.add(col)
+
+    def fit_columns(self, grow_only: bool = False):
+        """Fits the columns you haven't sized yourself. grow_only: only widen (live values)."""
+        self._fitting = True
+        for c in range(self.columnCount()):
+            if c in self._user_sized or self.isColumnHidden(c):
+                continue
+            w = max(self.sizeHintForColumn(c), self.header().sectionSizeHint(c))
+            if not grow_only or w > self.columnWidth(c):
+                self.setColumnWidth(c, w)
+        self._fitting = False
 
     def mimeData(self, items):
         it = items[0] if items else None
@@ -371,6 +400,7 @@ class ValuesPanel(QWidget):
                 self._rows.append((si, c.name, it))
         self._building = False
         self.refresh()
+        self.tree.fit_columns()
 
     def selected(self) -> tuple[int, str] | None:
         it = self.tree.currentItem()
@@ -414,6 +444,7 @@ class ValuesPanel(QWidget):
             st = sig.window_stats(x, y, a, b)
             it.setText(6, _fmt(st[0]) if st else "")
             it.setText(7, _fmt(st[1]) if st else "")
+        self.tree.fit_columns(grow_only=True)
 
     def _strip(self, si: int):
         strips = self.tab.area.strips

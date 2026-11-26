@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -9,6 +10,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
+    QFrame,
     QFormLayout,
     QGridLayout,
     QGroupBox,
@@ -114,6 +116,9 @@ class DeviceDialog(QDialog):
 
 
 class SettingsTab(QWidget):
+    # True while the form has changes that aren't saved yet (MainWindow marks the tab).
+    dirty_changed = Signal(bool)
+
     def __init__(self, ctx):
         super().__init__()
         self.ctx = ctx
@@ -224,12 +229,92 @@ class SettingsTab(QWidget):
         b_save.clicked.connect(self.save)
         bottom.addWidget(b_save)
 
+        # Red bar while something is changed but not saved: changes only apply after Save.
+        self.unsaved = QFrame()
+        self.unsaved.setStyleSheet("QFrame { background:#c62828; border-radius:4px; } QLabel { color:white; }")
+        ub = QHBoxLayout(self.unsaved)
+        ub.setContentsMargins(10, 4, 10, 4)
+        ub.addWidget(QLabel("<b>Unsaved settings.</b> They don't apply until you save."), 1)
+        b_save2 = QPushButton("Save")
+        b_save2.clicked.connect(lambda: self.save())
+        b_undo = QPushButton("Undo changes")
+        b_undo.clicked.connect(self.undo)
+        ub.addWidget(b_save2)
+        ub.addWidget(b_undo)
+        self.unsaved.hide()
+
         lay = QVBoxLayout(self)
         lay.addWidget(g)
         lay.addWidget(d, 1)
+        lay.addWidget(self.unsaved)
         lay.addLayout(bottom)
         self.devices = [Device.from_dict(_asdict(x)) for x in s.devices]
         self._fill_devices()
+
+        self._dirty = False
+        self._saved_state = self._form_state()
+        for w in (self.save_folder, self.pit_config, self.batt_topic, self.key_path):
+            w.textChanged.connect(self._check_dirty)
+        for w in (self.poll, self.speed, self.in_use, self.sharp):
+            w.valueChanged.connect(self._check_dirty)
+        for w in (self.nt_dev, self.nt_backend):
+            w.currentIndexChanged.connect(self._check_dirty)
+        for w in (self.del_after, self.match_only, self.start_min, self.snap_on_connect):
+            w.toggled.connect(self._check_dirty)
+
+    # ------------------------------------------------------------ unsaved changes
+    def _form_state(self) -> tuple:
+        return (
+            self.save_folder.text().strip(),
+            self.pit_config.text().strip(),
+            self.poll.value(),
+            self.speed.value(),
+            self.in_use.value(),
+            self.sharp.value(),
+            self.nt_dev.currentText(),
+            self.nt_backend.currentData(),
+            self.batt_topic.text().strip(),
+            self.key_path.text().strip(),
+            self.del_after.isChecked(),
+            self.match_only.isChecked(),
+            self.start_min.isChecked(),
+            self.snap_on_connect.isChecked(),
+            repr([_asdict(x) for x in self.devices]),
+        )
+
+    def is_dirty(self) -> bool:
+        return self._dirty
+
+    def _check_dirty(self, *_):
+        if not hasattr(self, "_saved_state"):
+            return  # still building the form
+        dirty = self._form_state() != self._saved_state
+        if dirty != self._dirty:
+            self._dirty = dirty
+            self.unsaved.setVisible(dirty)
+            self.dirty_changed.emit(dirty)
+
+    def undo(self):
+        """Puts the form back to the saved settings."""
+        s = self.ctx.settings
+        self.save_folder.setText(s.save_folder)
+        self.pit_config.setText(s.pit_config)
+        self.poll.setValue(s.poll_seconds)
+        self.speed.setValue(s.speed_limit_kbps)
+        self.in_use.setValue(s.in_use_seconds)
+        self.sharp.setValue(s.stream_sharpness_min)
+        self.nt_backend.setCurrentIndex(max(0, self.nt_backend.findData(s.nt_backend)))
+        self.batt_topic.setText(s.battery_topic)
+        self.key_path.setText(s.key_path)
+        self.del_after.setChecked(s.delete_after_verify)
+        self.match_only.setChecked(s.auto_match_logs_only)
+        self.start_min.setChecked(s.start_minimized)
+        self.snap_on_connect.setChecked(s.jetson_snapshot_on_connect)
+        self.devices = [Device.from_dict(_asdict(x)) for x in s.devices]
+        self.nt_dev.setCurrentText(s.nt_device)
+        self._fill_devices()
+        self.nt_dev.setCurrentText(s.nt_device)
+        self._check_dirty()
 
     # ------------------------------------------------------------ devices
     def _fill_devices(self):
@@ -246,6 +331,7 @@ class SettingsTab(QWidget):
         self.nt_dev.clear()
         self.nt_dev.addItems([d.name for d in self.devices])
         self.nt_dev.setCurrentText(cur)
+        self._check_dirty()
 
     def _selected(self) -> Device | None:
         r = self.table.currentRow()
@@ -371,6 +457,8 @@ class SettingsTab(QWidget):
         if old_nt != (s.nt_device, s.nt_port, [_asdict(d) for d in s.devices]):
             self.ctx.restart_nt()
         self.ctx.settings_changed.emit()
+        self._saved_state = self._form_state()
+        self._check_dirty()
         if not quiet:
             self.ctx.log("Settings saved")
 

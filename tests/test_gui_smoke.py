@@ -79,6 +79,12 @@ def test_gui_smoke(tmp_path):
         assert st.list_panel._items, "signal tree is empty"
         assert st.unit("/HOT/Robot/BatteryVoltage") == "volt"  # from the topic's "unit" property
         assert st.unit("/HOT/Drive/TotalCurrent") == ""  # no property: unitless, not guessed
+        # Values panel: a column the user widened keeps its width
+        vt = st.values.tree
+        vt.header().resizeSection(1, 333)
+        st.values.rebuild()
+        spin(0.3)
+        assert vt.columnWidth(1) == 333, vt.columnWidth(1)
         # Signals keeps recording the plotted signals on another tab
         w.show_tab(w.cams_tab)
         spin(1.5)
@@ -118,6 +124,17 @@ def test_gui_smoke(tmp_path):
         assert not ctx.nt.connected
         assert "LOCK" in w.badge.text()
         ctx.set_lock(False)
+        # Settings: a change shows the red "unsaved" bar until saved or undone
+        se = w.settings_tab
+        assert not se.is_dirty() and se.unsaved.isHidden()
+        se.match_only.setChecked(not se.match_only.isChecked())
+        assert se.is_dirty() and not se.unsaved.isHidden()
+        assert "unsaved" in w.tabs.tabText(w.tabs.indexOf(w._tab_pages[se]))
+        se.undo()
+        assert not se.is_dirty() and se.unsaved.isHidden()
+        se.speed.setValue(se.speed.value() + 1)
+        se.save(quiet=True)
+        assert not se.is_dirty() and ctx.settings.speed_limit_kbps == se.speed.value()
         w.close()  # closing the window quits the app (no hiding in the tray)
         assert w.quitting and not ctx.nt.connected
         assert not errors, errors

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMenu,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -84,6 +85,7 @@ class MainWindow(QMainWindow):
             page.setWidget(tab)
             self._tab_pages[tab] = page
             self.tabs.addTab(page, name)
+        self.settings_tab.dirty_changed.connect(self._show_settings_dirty)
 
         self.activity = QPlainTextEdit()
         self.activity.setReadOnly(True)
@@ -112,7 +114,7 @@ class MainWindow(QMainWindow):
         self.a_lock.setCheckable(True)
         self.a_lock.triggered.connect(lambda on: ctx.set_lock(on))
         a_quit = QAction("Quit", self)
-        a_quit.triggered.connect(self.quit)
+        a_quit.triggered.connect(lambda: self.quit())
         menu.addAction(a_show)
         menu.addAction(self.a_lock)
         menu.addSeparator()
@@ -190,14 +192,43 @@ class MainWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
+    def _show_settings_dirty(self, dirty: bool):
+        i = self.tabs.indexOf(self._tab_pages[self.settings_tab])
+        self.tabs.setTabText(i, "Settings ● unsaved" if dirty else "Settings")
+        self.tabs.tabBar().setTabTextColor(i, Qt.GlobalColor.red if dirty else self.tabs.tabBar().palette().text().color())
+
+    def _confirm_unsaved(self) -> bool:
+        """Asks what to do with unsaved settings. False = don't quit."""
+        if not self.settings_tab.is_dirty():
+            return True
+        self.show_normal()
+        self.show_tab(self.settings_tab)
+        b = QMessageBox.question(
+            self,
+            "Unsaved settings",
+            "Some settings were changed but not saved. Save them before quitting?",
+            QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+        if b == QMessageBox.StandardButton.Cancel:
+            return False
+        if b == QMessageBox.StandardButton.Save:
+            self.settings_tab.save()
+        return True
+
     def closeEvent(self, e):
         # Closing the window quits HOTWire (it used to hide in the tray, which
         # left it running unnoticed and blocked rebuilding the .exe).
+        if not self.quitting and not self._confirm_unsaved():
+            e.ignore()
+            return
         e.accept()
         if not self.quitting:
-            self.quit()
+            self.quit(ask=False)
 
-    def quit(self):
+    def quit(self, ask: bool = True):
+        if ask and not self.quitting and not self._confirm_unsaved():
+            return
         self.quitting = True
         self._shutdown()
         QApplication.quit()
