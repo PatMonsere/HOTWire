@@ -75,6 +75,28 @@ def find_start(ser, cond, after: float) -> float | None:
     return None
 
 
+def find_step_start(ser, prefix: str, after: float) -> float | None:
+    """First time (strictly after `after`) the step name changes to one that starts with prefix."""
+    times = [p[0] for p in ser]
+    i = bisect.bisect_right(times, after)
+    prev = ser[i - 1][1] if i > 0 else None
+    prev_ok = isinstance(prev, str) and prev.startswith(prefix)
+    for t, v in ser[i:]:
+        ok = isinstance(v, str) and v.startswith(prefix)
+        if ok and not prev_ok:
+            return t
+        prev_ok = ok
+    return None
+
+
+def step_at(ser, t: float) -> str:
+    """The step name at time t ('' if none)."""
+    times = [p[0] for p in ser]
+    i = bisect.bisect_right(times, t) - 1
+    v = ser[i][1] if i >= 0 else ""
+    return v if isinstance(v, str) else ""
+
+
 def _upper(v, lim, m):
     if v <= lim:
         return "pass"
@@ -193,10 +215,12 @@ def analyze(
     results: list[CheckResult] = []
     after = -math.inf
     for chk in cfg.checks:
-        ser = rec.get(cfg.topic(chk.start_when.signal), [])
-        t0 = find_start(ser, chk.start_when, after)
+        if chk.start_step:
+            t0 = find_step_start(rec.get(cfg.step_topic, []), chk.start_step, after)
+        else:
+            t0 = find_start(rec.get(cfg.topic(chk.start_when.signal), []), chk.start_when, after)
         if t0 is None:
-            results.append(CheckResult(chk, "missing" if final else "waiting", note=f"never saw {chk.start_when}"))
+            results.append(CheckResult(chk, "missing" if final else "waiting", note=f"never saw {chk.start_text()}"))
             continue
         t1 = t0 + chk.window
         complete = data_end >= t1 + (0.0 if final else grace)

@@ -111,12 +111,19 @@ def test_gui_smoke(tmp_path):
         w.logs_tab._select(lambda f: True)
         # the window can shrink below the tabs' size (they scroll instead of being cut off)
         assert w.minimumSizeHint().height() < 600, w.minimumSizeHint()
-        # pit test: record a few seconds
+        # pit test: the robot's step shows live; record a few seconds
         w.show_tab(w.pit_tab)
+        spin(1.5)
+        assert "Robot pit step:" in w.pit_tab.step_label.text()
+        assert w.pit_tab._step_uid is not None and w.pit_tab.current_step(), w.pit_tab.step_label.text()
         w.pit_tab.start_recording()
         spin(3.0)
         w.pit_tab.stop_recording()
         assert w.pit_tab.results, "no results"
+        assert w.pit_tab.rec.get("/HOT/Pit/Step"), "step not recorded"
+        w.show_tab(w.cams_tab)
+        spin(1.5)
+        assert w.pit_tab._step_uid is None  # only while the tab is visible (or recording)
         assert list((tmp_path / "save" / "PitTests").glob("*/report.txt"))
         # competition lock closes NT
         ctx.set_lock(True)

@@ -44,7 +44,7 @@ $version = (& $py -c "import hotwire; print(hotwire.__version__)").Trim()
 $stage = "dist\HOTWire-$version"
 Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory $stage | Out-Null
-Copy-Item dist\HOTWire.exe, examples\pit_checks.yaml $stage
+Copy-Item dist\HOTWire.exe, examples\pit_checks.yaml, examples\pit_checks_2027.yaml $stage
 @"
 HOTWire $version
 
@@ -53,6 +53,9 @@ HOTWire.exe       run it, nothing to install (unsigned: "More info > Run anyway"
 pit_checks.yaml   pit test checks for the current robot. HOTWire uses
                   <save folder>\pit_checks.yaml: copy this file over it to get the new checks
                   (your old one is replaced, so keep a copy if you changed it).
+pit_checks_2027.yaml  starter checks for the 2027 robot code (2027_Biocore Pit Test):
+                  loose limits, use "Learn limits" after a few runs. To use it, copy it
+                  over <save folder>\pit_checks.yaml or pick it in Settings > Pit checks file.
 "@ | Set-Content -Encoding utf8 "$stage\README.txt"
 $zip = "dist\HOTWire-$version.zip"
 Remove-Item -Force $zip -ErrorAction SilentlyContinue

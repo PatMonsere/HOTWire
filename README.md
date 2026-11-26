@@ -43,7 +43,7 @@ On a programming laptop, we recommend turning Smart App Control off (Windows Sec
 1. **Settings → Save logs to**: choose a folder, ideally inside the team's Google Drive (Drive for Desktop).
 2. **Settings → Devices**: check the IPs (SystemCore `10.0.67.2`, Jetson `10.0.67.7`).
 3. Select each device and click **Set up key (password once)…**. The password is used once to install this laptop's key and is never saved.
-4. **Pit Test → Edit checks…** starts from `examples/pit_checks.yaml`. Run the pit test on a healthy robot, then **Learn limits from this run…**.
+4. **Pit Test → Edit checks…** starts from `examples/pit_checks.yaml` (the 2026 robot). For the 2027 robot code, use `examples/pit_checks_2027.yaml` (**Settings → Pit checks file**, or copy it over `<save folder>\pit_checks.yaml`). Run the pit test on a healthy robot, then **Learn limits from this run…**.
 
 ## Signals tab
 
@@ -85,6 +85,19 @@ checks:
 ```
 
 Keys: `peak_max`, `peak_min`, `steady: [lo, hi]`, `final` + `tolerance`, `settle_to` + `tolerance` + `within`, `overshoot_max`, `min`, `max`. See the comments in [`examples/pit_checks.yaml`](examples/pit_checks.yaml).
+
+**Robot pit step.** The 2027 robot code publishes the step its Pit Test is on (`HOT/Pit/Step`, e.g. `2/6 Intake deploy and roll in (running)`). The Pit Test tab shows it live at the top, records it with every run (`recording.csv`, and `robot_step` in `report.json`), and a check can start on it instead of a signal edge:
+
+```yaml
+step_signal: HOT/Pit/Step     # optional, this is the default
+checks:
+  - name: Intake deploy
+    start_step: "2/6"          # starts when the step name begins with "2/6"
+    window: 4.0
+    expect: ...
+```
+
+The 2027 robot also sends a few readings to NetworkTables **only while its Pit Test runs** (`HOT/Pit/Intake/...`, `HOT/Pit/Drive/...`), so live grading uses those. See [`examples/pit_checks_2027.yaml`](examples/pit_checks_2027.yaml).
 
 **Analyze a log file…** runs the same checks on a downloaded `.wpilog` (DataLogManager records NetworkTables) or on a saved HOTWire recording.
 

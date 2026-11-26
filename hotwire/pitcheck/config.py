@@ -10,9 +10,13 @@ Format (see examples/pit_checks.yaml for a full, commented example):
     signals:                 # short alias -> NetworkTables topic
       shooter_vel: HOT/Shooter/Left Top/ShooterLeft TopVelocity
 
+    step_signal: HOT/Pit/Step  # optional: the robot's pit step name (a string topic)
+
     checks:
       - name: Shooter Batter preset
         start_when: shooter_vel > 5     # alias, comparison, number; abs(alias) allowed
+        # or, if the robot publishes its step name:
+        # start_step: "2/6"             # starts when the step name begins with this
         window: 3.0                     # seconds analyzed after the start
         expect:
           shooter_vel:  { settle_to: 55, tolerance: 2, within: 1.5 }
@@ -72,9 +76,16 @@ class Condition:
 @dataclass
 class Check:
     name: str
-    start_when: Condition
+    start_when: Condition | None  # a signal crossing a value, or ...
     window: float
     expect: dict[str, dict]  # alias -> expectation dict
+    start_step: str | None = None  # ... the robot's pit step name starting with this text
+
+    def start_text(self) -> str:
+        return f"step '{self.start_step}'" if self.start_step else str(self.start_when)
+
+
+DEFAULT_STEP_TOPIC = "/HOT/Pit/Step"
 
 
 @dataclass
@@ -86,12 +97,17 @@ class PitConfig:
     in_order: bool = True
     errors: list[str] = field(default_factory=list)
     path: Path | None = None
+    step_topic: str = DEFAULT_STEP_TOPIC  # string topic with the robot's pit step name
 
     def topic(self, alias: str) -> str:
         return self.signals.get(alias, norm(alias))
 
+    def uses_steps(self) -> bool:
+        return any(c.start_step for c in self.checks)
+
     def all_topics(self) -> list[str]:
-        return sorted(set(self.signals.values()))
+        """Every topic to record (the step topic only if a check starts on a step)."""
+        return sorted(set(self.signals.values()) | ({self.step_topic} if self.uses_steps() else set()))
 
 
 def yaml_rt() -> YAML:
@@ -152,11 +168,21 @@ def load_text(text: str, path: Path | None = None) -> PitConfig:
             errors.append(f"{where}: each check must be a mapping")
             continue
         name = str(c.get("name") or f"check {i + 1}")
-        cond = parse_condition(c.get("start_when", ""))
-        if cond is None:
-            errors.append(f"{where} ({name}): start_when must look like 'alias > 5' or 'abs(alias) > 5'")
-        elif cond.signal not in signals:
-            errors.append(f"{where} ({name}): start_when uses unknown signal '{cond.signal}'")
+        step = c.get("start_step")
+        step = str(step).strip() if step is not None and str(step).strip() else None
+        cond = None
+        if step is not None and c.get("start_when") is not None:
+            errors.append(f"{where} ({name}): use start_when or start_step, not both")
+            continue
+        if step is None:
+            cond = parse_condition(c.get("start_when", ""))
+            if cond is None:
+                errors.append(
+                    f"{where} ({name}): start_when must look like 'alias > 5' or 'abs(alias) > 5'"
+                    ' (or use start_step: "2/6")'
+                )
+            elif cond.signal not in signals:
+                errors.append(f"{where} ({name}): start_when uses unknown signal '{cond.signal}'")
         try:
             window = float(c.get("window", 2.0))
             if window <= 0:
@@ -196,8 +222,8 @@ def load_text(text: str, path: Path | None = None) -> PitConfig:
             if "settle_to" in e and "within" not in e:
                 errors.append(f"{where} ({name}): '{alias}' has settle_to but no 'within' (seconds)")
             expect[alias] = e
-        if cond is not None:
-            checks.append(Check(name, cond, window, expect))
+        if cond is not None or step is not None:
+            checks.append(Check(name, cond, window, expect, step))
 
     return PitConfig(
         signals,
@@ -207,7 +233,15 @@ def load_text(text: str, path: Path | None = None) -> PitConfig:
         in_order=bool(defaults.get("in_order", True)),
         errors=errors,
         path=path,
+        step_topic=_step_topic(doc.get("step_signal"), signals),
     )
+
+
+def _step_topic(raw, signals: dict[str, str]) -> str:
+    if raw is None or not str(raw).strip():
+        return DEFAULT_STEP_TOPIC
+    raw = str(raw).strip()
+    return signals.get(raw, norm(raw))  # an alias or a topic
 
 
 def load(path: Path) -> PitConfig:

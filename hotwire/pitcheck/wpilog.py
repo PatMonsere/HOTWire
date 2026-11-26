@@ -19,8 +19,15 @@ from hotwire.nt4 import norm
 NUMERIC = {"double", "float", "int64", "boolean"}
 
 
-def read_wpilog(path: str | Path, wanted_topics: list[str] | None = None, metadata: dict | None = None):
+def read_wpilog(
+    path: str | Path,
+    wanted_topics: list[str] | None = None,
+    metadata: dict | None = None,
+    string_topics: list[str] | None = None,
+):
     """Return ({topic: [(t_seconds, value)]}, {topic: type}) for numeric entries.
+
+    string_topics: string entries to read too (values stay strings), e.g. the pit step name.
 
     wanted_topics: NT topic names (with or without leading '/'). None = all numeric.
     metadata: if given, filled with {topic: entry metadata string} (for NT entries
@@ -35,6 +42,7 @@ def read_wpilog(path: str | Path, wanted_topics: list[str] | None = None, metada
     (extra,) = struct.unpack_from("<I", data, 8)
     pos = 12 + extra
     wanted = {norm(t) for t in wanted_topics} if wanted_topics else None
+    strings = {norm(t) for t in string_topics} if string_topics else set()
 
     entries: dict[int, tuple[str, str]] = {}  # id -> (topic, type)
     out: dict[str, list[tuple[float, float]]] = {}
@@ -70,7 +78,7 @@ def read_wpilog(path: str | Path, wanted_topics: list[str] | None = None, metada
                 typ = payload[q + 4 : q + 4 + ln].decode("utf-8", "replace")
                 q += 4 + ln
                 topic = norm(name[3:]) if name.startswith("NT:") else norm(name)
-                if typ in NUMERIC and (wanted is None or topic in wanted):
+                if (typ in NUMERIC and (wanted is None or topic in wanted)) or (typ == "string" and topic in strings):
                     entries[new_id] = (topic, typ)
                     types[topic] = typ
                     if metadata is not None and q + 4 <= len(payload):
@@ -91,6 +99,8 @@ def read_wpilog(path: str | Path, wanted_topics: list[str] | None = None, metada
                 v = struct.unpack("<f", payload)[0]
             elif typ == "int64":
                 v = float(struct.unpack("<q", payload)[0])
+            elif typ == "string":
+                v = payload.decode("utf-8", "replace")
             else:
                 v = 1.0 if payload[0] else 0.0
         except (struct.error, IndexError):

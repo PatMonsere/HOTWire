@@ -56,6 +56,7 @@ TOPICS = {
     "/HOT/Shooter/Hood/ShooterHoodSupply Current": "double",
     "/HOT/Drive/TotalCurrent": "double",
     "/HOT/Robot/BatteryVoltage": "double",
+    "/HOT/Pit/Step": "string",  # the 2027 robot code's pit step name
 }
 for cam in ("LEFT", "FRONT", "BACK_LEFT", "BACK_RIGHT"):
     TOPICS[f"/HOTVision/{cam}/connected"] = "boolean"
@@ -173,7 +174,20 @@ def pit_signals(t: float) -> dict:
     dr = DRIVE <= c < DRIVE_END
     v["/HOT/Drive/TotalCurrent"] = (47 * math.exp(-(c - DRIVE) / 0.3) + 11 + 2 * math.sin(c * 7)) if dr else 0.5
     v["/HOT/Robot/BatteryVoltage"] = 12.6 - 0.012 * v["/HOT/Drive/TotalCurrent"]  # sag under load
+    v["/HOT/Pit/Step"] = pit_step(c)
     return v
+
+
+PIT_STEPS = [(EXTEND, "Intake"), (INDEX_ON, "Indexer"), (BATTER, "Shooter presets"), (LOAD, "Load"),
+             (FIRE, "Fire"), (DRIVE, "Drive")]  # fmt: skip
+
+
+def pit_step(c: float) -> str:
+    """Like the 2027 robot's HOT/Pit/Step: "2/6 Indexer (running)"."""
+    n = sum(1 for ts, _ in PIT_STEPS if c >= ts)
+    if n == 0:
+        return "press d-pad right to start"
+    return f"{n}/{len(PIT_STEPS)} {PIT_STEPS[n - 1][1]} (running)"
 
 
 class Client(threading.Thread):

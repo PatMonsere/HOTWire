@@ -236,8 +236,7 @@ class MainWindow(QMainWindow):
     def _shutdown(self):
         self.cams_tab.stop_all()  # close camera streams -> HOTVision stops encoding
         self.signals_tab.shutdown()
-        if self.pit_tab.recorder is not None:
-            self.pit_tab.stop_recording()
+        self.pit_tab.shutdown()  # recording and the pit step subscription
         self.ctx.stop_nt()
         self.tray.hide()
 

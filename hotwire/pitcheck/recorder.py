@@ -43,10 +43,12 @@ class Recorder:
     def _append(self, topic: str, ts_us: int, value) -> None:
         if isinstance(value, bool):
             value = 1.0 if value else 0.0
-        if not isinstance(value, (int, float)):
+        if isinstance(value, (int, float)):
+            value = float(value)
+        elif not isinstance(value, str):  # strings are kept (the robot's pit step name)
             return
         with self._lock:
-            self.data[topic].append((ts_us / 1e6, float(value)))
+            self.data[topic].append((ts_us / 1e6, value))
 
     def _on_value(self, topic: str, ts_us: int, value) -> None:
         if topic in self.topics:
@@ -54,7 +56,7 @@ class Recorder:
 
     def snapshot(self) -> dict[str, list[tuple[float, float]]]:
         with self._lock:
-            return {k: sorted(v) for k, v in self.data.items()}
+            return {k: sorted(v, key=lambda p: p[0]) for k, v in self.data.items()}
 
     def now(self) -> float:
         return self.nt.server_time_us() / 1e6
@@ -64,7 +66,7 @@ def save_csv(rec: dict[str, list[tuple[float, float]]], path: Path) -> None:
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["time_s", "topic", "value"])
-        rows = sorted((t, topic, v) for topic, s in rec.items() for t, v in s)
+        rows = sorted(((t, topic, v) for topic, s in rec.items() for t, v in s), key=lambda r: (r[0], r[1]))
         w.writerows(rows)
 
 
@@ -72,7 +74,11 @@ def load_csv(path: Path) -> dict[str, list[tuple[float, float]]]:
     out: dict[str, list[tuple[float, float]]] = {}
     with open(path, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
-            out.setdefault(row["topic"], []).append((float(row["time_s"]), float(row["value"])))
+            try:
+                v = float(row["value"])
+            except ValueError:
+                v = row["value"]  # a string (the robot's pit step name)
+            out.setdefault(row["topic"], []).append((float(row["time_s"]), v))
     for s in out.values():
-        s.sort()
+        s.sort(key=lambda p: p[0])
     return out

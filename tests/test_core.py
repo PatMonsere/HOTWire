@@ -426,3 +426,77 @@ def test_wpilog_reader(tmp_path):
     assert "/x" not in rec
     rec2, _ = read_wpilog(p, ["HOT/Shooter/Vel"])
     assert list(rec2) == ["/HOT/Shooter/Vel"]
+
+
+# ------------------------------------------------------------------ pit step (2027 robot: HOT/Pit/Step)
+STEP_CFG = """
+signals:
+  vel: HOT/Shooter/Vel
+checks:
+  - name: Shooter spin-up
+    start_step: "2/6"
+    window: 2.0
+    expect:
+      vel: { final: 50, tolerance: 2 }
+"""
+
+
+def test_start_step_config_and_analysis():
+    cfg = pc.load_text(STEP_CFG)
+    assert not cfg.errors, cfg.errors
+    assert cfg.checks[0].start_step == "2/6" and cfg.checks[0].start_when is None
+    assert cfg.step_topic == "/HOT/Pit/Step" and "/HOT/Pit/Step" in cfg.all_topics()
+    rec = shooter_run()  # vel starts rising at 1.0 s
+    rec["/HOT/Pit/Step"] = [(0.0, "1/6 Intake (running)"), (0.98, "2/6 Shooter (stopped)"), (1.0, "2/6 Shooter (running)")]
+    res = an.analyze(cfg, rec, final=True)
+    assert res[0].start == 0.98 and res[0].status == "pass", an.report_text(res)
+    assert an.step_at(rec["/HOT/Pit/Step"], 1.5) == "2/6 Shooter (running)"
+    # never reached: missing, and the note names the step
+    rec["/HOT/Pit/Step"] = [(0.0, "1/6 Intake (running)")]
+    r = an.analyze(cfg, rec, final=True)[0]
+    assert r.status == "missing" and "2/6" in r.note
+    # both ways to start is an error; a custom step topic (alias or topic) is allowed
+    both = STEP_CFG.replace('    start_step: "2/6"', '    start_step: "2/6"\n    start_when: vel > 5')
+    assert any("not both" in e for e in pc.load_text(both).errors)
+    custom = pc.load_text("step_signal: Robot/Step\n" + STEP_CFG)
+    assert custom.step_topic == "/Robot/Step"
+
+
+def test_step_strings_in_csv_and_wpilog(tmp_path):
+    from hotwire.pitcheck.recorder import load_csv, save_csv
+
+    rec = {"/HOT/Pit/Step": [(1.0, "1/6 Intake, deploy (running)")], "/HOT/Shooter/Vel": [(1.0, 2.5)]}
+    save_csv(rec, tmp_path / "r.csv")
+    assert load_csv(tmp_path / "r.csv") == rec
+    data = _wpilog([(1, "NT:/HOT/Pit/Step", "string"), (2, "NT:/HOT/Shooter/Vel", "double")],
+                   [(1, 1_000_000, b"2/6 Shooter (running)"), (2, 1_000_000, struct.pack("<d", 3.0))])  # fmt: skip
+    p = tmp_path / "s.wpilog"
+    p.write_bytes(data)
+    rec2, _ = read_wpilog(p, ["HOT/Shooter/Vel"], string_topics=["HOT/Pit/Step"])
+    assert rec2["/HOT/Pit/Step"] == [(1.0, "2/6 Shooter (running)")]
+    assert "/HOT/Pit/Step" not in read_wpilog(p)[0]  # strings only when asked for
+
+
+def test_2027_starter_checks():
+    """The 2027 starter file is valid and passes a made-up healthy Biocore pit test."""
+    cfg = pc.load(Path(__file__).parents[1] / "examples" / "pit_checks_2027.yaml")
+    assert not cfg.errors, cfg.errors
+    assert len(cfg.checks) == 6 and all(c.start_step for c in cfg.checks)
+    names = ["Intake stow", "Intake deploy and roll in", "Intake outtake", "Drive forward slowly",
+             "Drive back slowly", "Turn slowly"]  # fmt: skip
+    starts = [1.0, 4.0, 9.0, 13.0, 15.0, 17.0]
+    rec: dict = {t: [] for t in cfg.all_topics()}
+    rec["/HOT/Pit/Step"] = [(s, f"{i + 1}/6 {n} (running)") for i, (s, n) in enumerate(zip(starts, names))]
+    for k in range(0, 2100):
+        t = k / 100
+        deployed = 4.0 + 1.5 <= t < 13.0
+        rec["/HOT/Pit/Intake/PivotPosition"].append((t, 0.07 if deployed else 0.61))
+        rec["/HOT/Pit/Intake/PivotAmps"].append((t, 5.0))
+        roller = 60.0 if 5.5 <= t < 9.0 else -50.0 if 9.0 <= t < 13.0 else 0.0
+        rec["/HOT/Pit/Intake/RollerVelocity"].append((t, roller))
+        rec["/HOT/Pit/Intake/RollerAmps"].append((t, 10.0))
+        rec["/HOT/Pit/Drive/Speed"].append((t, 0.3 if 13.0 <= t < 14.0 or 15.0 <= t < 16.0 else 0.0))
+        rec["/HOT/Pit/Drive/TurnRate"].append((t, 0.5 if 17.0 <= t < 19.0 else 0.0))
+        rec["/HOT/Pit/Drive/TotalAmps"].append((t, 20.0))
+    res = an.analyze(cfg, rec, final=True)
+    assert all(r.status == "pass" for r in res), an.report_text(res)

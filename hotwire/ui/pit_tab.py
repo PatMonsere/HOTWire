@@ -90,6 +90,19 @@ class PitTab(QWidget):
         act.addWidget(self.summary)
         self.rec_label = QLabel("")
 
+        # --- the robot's current pit step (2027 robot code publishes HOT/Pit/Step), live
+        self.step_label = QLabel("")
+        fs = QFont()
+        fs.setPointSize(14)
+        fs.setBold(True)
+        self.step_label.setFont(fs)
+        self.step_label.setStyleSheet("padding:4px 8px; background:#eef2f7; border-radius:4px;")
+        self.step_label.setToolTip("The step the robot's Pit Test opmode is on (NT topic set by step_signal)")
+        self._step_uid = None
+        self.step_timer = QTimer(self)
+        self.step_timer.timeout.connect(self._show_step)
+        ctx.tick.connect(self._step_sync)  # subscribe while visible or recording; never with the FMS
+
         # --- results + chart
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Check / signal", "Status", "Value", "Limit", "Note"])
@@ -108,6 +121,7 @@ class PitTab(QWidget):
         lay.addLayout(cfg_row)
         lay.addWidget(self.errors)
         lay.addLayout(act)
+        lay.addWidget(self.step_label)
         lay.addWidget(self.rec_label)
         lay.addWidget(split, 1)
 
@@ -145,6 +159,54 @@ class PitTab(QWidget):
         if dlg.exec():
             self.load_config()
 
+    # ------------------------------------------------------------ pit step (live)
+    def step_topic(self) -> str:
+        return self.cfg.step_topic if self.cfg else pc.DEFAULT_STEP_TOPIC
+
+    def _step_sync(self, state=None):
+        st = state or self.ctx.state
+        want = (self.isVisible() or self.recorder is not None) and not st.fms_attached and not self.ctx.locked
+        if want and self._step_uid is None:
+            self._step_uid = self.ctx.nt.subscribe([self.step_topic()], periodic=0.1)
+            self.step_timer.start(200)
+        elif not want:
+            self._step_unsubscribe()
+        self._show_step()
+
+    def _step_unsubscribe(self):
+        if self._step_uid is not None:
+            self.ctx.nt.unsubscribe(self._step_uid)
+            self._step_uid = None
+        self.step_timer.stop()
+
+    def current_step(self) -> str:
+        if self._step_uid is None:
+            return ""
+        v = self.ctx.nt.get(self.step_topic())
+        return v if isinstance(v, str) else ""
+
+    def _show_step(self):
+        step = self.current_step()
+        if step:
+            self.step_label.setText(f"Robot pit step:  {step}")
+        elif self._step_uid is not None and self.ctx.nt.connected:
+            self.step_label.setText(f"Robot pit step:  (not published: {self.step_topic()})")
+        else:
+            self.step_label.setText("Robot pit step:  (robot not connected)")
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self._step_sync()
+
+    def hideEvent(self, e):
+        super().hideEvent(e)
+        self._step_sync()
+
+    def shutdown(self):
+        if self.recorder is not None:
+            self.stop_recording()
+        self._step_unsubscribe()
+
     # ------------------------------------------------------------ recording
     def toggle_recording(self):
         if self.recorder is None:
@@ -163,7 +225,8 @@ class PitTab(QWidget):
         if not self.ctx.nt.connected:
             QMessageBox.warning(self, "Robot not connected", "NetworkTables isn't connected to the robot.")
             return
-        self.recorder = Recorder(self.ctx.nt, self.cfg.all_topics())
+        # the step name is always recorded with the run (saved in recording.csv)
+        self.recorder = Recorder(self.ctx.nt, sorted(set(self.cfg.all_topics()) | {self.step_topic()}))
         self.recorder.start()
         self.rec_source = "live"
         self.btn_rec.setText("■  Stop && analyze")
@@ -197,7 +260,7 @@ class PitTab(QWidget):
         self.rec = self.recorder.snapshot()
         n = sum(len(v) for v in self.rec.values())
         t = self.recorder.now() - self.recorder.t_start_us / 1e6
-        silent = [k for k, v in self.rec.items() if not v]
+        silent = [k for k, v in self.rec.items() if not v and k != self.step_topic()]
         self.rec_label.setText(
             f"Recording {t:5.1f} s · {n} samples"
             + (f" · no data yet from {len(silent)} signal(s): {', '.join(silent[:3])}" if silent else "")
@@ -210,9 +273,11 @@ class PitTab(QWidget):
         folder.mkdir(parents=True, exist_ok=True)
         save_csv(self.rec, folder / "recording.csv")
         (folder / "report.txt").write_text(an.report_text(self.results), encoding="utf-8")
+        steps = self.rec.get(self.step_topic(), [])
         report = [
             {
                 "check": r.check.name,
+                "robot_step": an.step_at(steps, r.start) if r.start is not None else "",
                 "status": r.status,
                 "start": r.start,
                 "end": r.end,
@@ -239,13 +304,13 @@ class PitTab(QWidget):
             return
         try:
             if path.lower().endswith(".wpilog"):
-                rec, _types = read_wpilog(path, self.cfg.all_topics())
+                rec, _types = read_wpilog(path, self.cfg.all_topics(), string_topics=[self.step_topic()])
             else:
                 rec = load_csv(Path(path))
         except Exception as e:
             QMessageBox.warning(self, "Can't read file", str(e))
             return
-        missing = [t for t in self.cfg.all_topics() if not rec.get(t)]
+        missing = [t for t in self.cfg.all_topics() if not rec.get(t) and t != self.step_topic()]
         self.rec = rec
         self.rec_source = path
         self.run_analysis(final=True)

@@ -1,0 +1,86 @@
+# HOT 67 pit test checks for the 2027 robot code (2027_Biocore, PitTestOpMode).
+#
+# STARTER FILE: the limits below are loose placeholders, only to prove that recording, live
+# grading and "Analyze a log file" work end to end. Replace them with "Learn limits from this
+# run..." after a few runs on a healthy robot.
+#
+# How it works
+#   1. Plug in the tether, open HOTWire > Pit Test, press "Start recording".
+#   2. Driver Station: Utility mode, pick "Pit Test", enable. Driver d-pad right runs the next
+#      step (A = run it again, B = stop). The banner at the top of the Pit Test tab shows the
+#      robot's step. Wait for each step to finish before the next one.
+#   3. Press "Stop & analyze". Each check below gets pass / warn / fail.
+#
+# Each check starts when the robot's step name (HOT/Pit/Step, e.g. "2/6 Intake deploy and roll
+# in (running)") starts with its start_step, so checks can't get matched to the wrong step.
+#
+# The readings come from HOT/Pit/...: the robot sends them to NetworkTables ONLY while the Pit
+# Test opmode runs (Intake.showLive, Drivetrain.showLive). Everything else is in the robot log.
+# Units: pivot = rotations (stowed 0.61, deployed 0.07; smaller is further out), roller = rotations/s,
+# drive speed = m/s, turn rate = rad/s, amps = supply current.
+# Between steps the intake's idle stows it (pivot back to 0.61, rollers off).
+
+defaults:
+  warn_margin: 0.10      # up to 10 % past a limit = warn, more = fail
+  steady_fraction: 0.3   # "steady" = the last 30 % of each check's window
+  in_order: true         # checks are expected in this order (like the pit test steps)
+
+step_signal: HOT/Pit/Step
+
+signals:
+  pivot_target:  HOT/Pit/Intake/PivotTarget
+  pivot_pos:     HOT/Pit/Intake/PivotPosition
+  pivot_amps:    HOT/Pit/Intake/PivotAmps
+  roller_target: HOT/Pit/Intake/RollerTarget
+  roller_vel:    HOT/Pit/Intake/RollerVelocity
+  roller_amps:   HOT/Pit/Intake/RollerAmps
+  drive_speed:   HOT/Pit/Drive/Speed
+  turn_rate:     HOT/Pit/Drive/TurnRate
+  drive_amps:    HOT/Pit/Drive/TotalAmps
+
+checks:
+  - name: 1 Intake stow
+    start_step: "1/6"
+    window: 2.0
+    expect:
+      pivot_pos:  { final: 0.61, tolerance: 0.05 }
+      pivot_amps: { peak_max: 100 }
+      roller_vel: { steady: [-5, 5] }
+
+  - name: 2 Intake deploy and roll in
+    start_step: "2/6"
+    window: 4.0            # deploy took ~1.5 s on 2026-11-25, then the rollers spin up
+    expect:
+      pivot_pos:   { final: 0.07, tolerance: 0.05 }
+      pivot_amps:  { peak_max: 100 }
+      roller_vel:  { final: 60, tolerance: 10 }
+      roller_amps: { peak_max: 100 }
+
+  - name: 3 Intake outtake
+    start_step: "3/6"
+    window: 3.0
+    expect:
+      pivot_pos:   { final: 0.07, tolerance: 0.05 }
+      roller_vel:  { final: -50, tolerance: 10 }
+      roller_amps: { peak_max: 100 }
+
+  - name: 4 Drive forward slowly
+    start_step: "4/6"
+    window: 1.0            # 0.3 m/s for 1 s
+    expect:
+      drive_speed: { steady: [0.15, 0.45] }
+      drive_amps:  { peak_max: 200 }
+
+  - name: 5 Drive back slowly
+    start_step: "5/6"
+    window: 1.0            # speed is a size (always positive)
+    expect:
+      drive_speed: { steady: [0.15, 0.45] }
+      drive_amps:  { peak_max: 200 }
+
+  - name: 6 Turn slowly
+    start_step: "6/6"
+    window: 2.0            # 0.5 rad/s counterclockwise for 2 s
+    expect:
+      turn_rate:  { steady: [0.3, 0.7] }
+      drive_amps: { peak_max: 200 }
