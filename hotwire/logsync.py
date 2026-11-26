@@ -21,13 +21,14 @@ import shlex
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Protocol
 
 from hotwire.settings import data_dir
 
 CHUNK = 256 * 1024
+SANE_EPOCH = 1_735_689_600  # 2025-01-01: a robot file time before this is a clock that was never set
 
 
 @dataclass
@@ -162,15 +163,23 @@ def destination(save_folder: str, device_name: str, rf: RemoteFile, today: str |
 
     WPILIB_<date>_<time>_<EVENT>_<Q12>.wpilog -> <save>/<device>/<EVENT>/<Q12>/
     anything else                          -> <save>/<device>/<date>/<relative path>
-    The date comes from the file name if it has one, else today's (laptop) date,
-    because the robot clock is often wrong.
+    The date (UTC, like the WPILIB_ names, so a session's files share a folder):
+    - a WPILIB_/FRC_ name: the date in the name (set from the Driver Station's clock);
+    - other files (CTRE .hoot): the UTC date the robot last wrote it. Their folder name comes
+      from the robot clock at code start, before the Driver Station set it, so it can be a day
+      old (the SystemCore has no clock battery). By the time a file is downloaded the clock is set;
+    - else a date in the path, else today's (laptop) date.
     """
     base = Path(save_folder) / device_name
     m = WPILOG_RE.match(rf.name)
     if m and m.group(3):
         return base / m.group(3).upper() / m.group(4).upper() / rf.name
     dm = DATE_RE.search(rf.rel)
-    if dm:
+    if m:
+        day = f"{m.group(1)[:4]}-{m.group(1)[4:6]}-{m.group(1)[6:]}"
+    elif rf.mtime > SANE_EPOCH:
+        day = datetime.fromtimestamp(rf.mtime, timezone.utc).strftime("%Y-%m-%d")
+    elif dm:
         day = f"{dm.group(1)}-{dm.group(2)}-{dm.group(3)}"
     else:
         day = today or datetime.now().strftime("%Y-%m-%d")

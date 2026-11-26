@@ -114,6 +114,17 @@ def test_destination_rules(tmp_path):
     assert logsync.destination("S", "SC", tbd, today="2026-11-19") == Path("S/SC/2026-11-19/WPILIB_TBD_16250975ee69675a.wpilog")
     hoot = logsync.RemoteFile("/l/2026-11-18_19-22-56/2026-11-18_19-22-57.hoot", "2026-11-18_19-22-56/2026-11-18_19-22-57.hoot", 1, 0)
     assert logsync.destination("S", "SC", hoot) == Path("S/SC/2026-11-18/2026-11-18_19-22-56/2026-11-18_19-22-57.hoot")
+    # 2026-11-25: the hoot folder was named from the robot clock before the DS set it (a day old).
+    # It's dated by when the robot last wrote it (UTC, like WPILIB_ names), so it lands with
+    # its session's WPILIB_20261126_000038.wpilog.
+    from datetime import datetime, timezone
+
+    written = datetime(2026, 11, 26, 0, 10, 50, tzinfo=timezone.utc).timestamp()
+    stale = logsync.RemoteFile("/l/2026-11-24_18-23-02/2026-11-24_18-25-40.hoot", "2026-11-24_18-23-02/2026-11-24_18-25-40.hoot", 1, written)
+    assert logsync.destination("S", "SC", stale) == Path("S/SC/2026-11-26/2026-11-24_18-23-02/2026-11-24_18-25-40.hoot")
+    # WPILIB_ names keep the date in the name, whatever the file time
+    w2 = logsync.RemoteFile("/l/WPILIB_20261126_000038.wpilog", "WPILIB_20261126_000038.wpilog", 1, written - 86400 * 3)
+    assert logsync.destination("S", "SC", w2) == Path("S/SC/2026-11-26/WPILIB_20261126_000038.wpilog")
 
 
 def test_is_match_log():
