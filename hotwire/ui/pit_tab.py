@@ -96,7 +96,10 @@ class PitTab(QWidget):
         fs.setPointSize(14)
         fs.setBold(True)
         self.step_label.setFont(fs)
-        self.step_label.setStyleSheet("padding:4px 8px; background:#eef2f7; border-radius:4px;")
+        # theme colors, so it reads in light and dark mode
+        self.step_label.setStyleSheet(
+            "padding:4px 8px; border-radius:4px; background:palette(alternate-base); color:palette(text);"
+        )
         self.step_label.setToolTip("The step the robot's Pit Test opmode is on (NT topic set by step_signal)")
         self._step_uid = None
         self.step_timer = QTimer(self)

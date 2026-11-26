@@ -374,7 +374,7 @@ class ValuesPanel(QWidget):
             f.setBold(True)
             top.setFont(1, f)
             top.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            top.setBackground(1, QBrush(QColor("#eef2f7")))
+            top.setBackground(1, self.tree.palette().alternateBase())  # theme color (light and dark mode)
             self.tree.addTopLevelItem(top)
             if not s.traces:
                 e = QTreeWidgetItem(["", "  (empty: drop signals here)"])
