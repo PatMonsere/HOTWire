@@ -10,6 +10,7 @@ from hotwire.logsync import Index
 from hotwire.nt4 import make_client
 from hotwire.robotstate import Gate, RobotState, RobotStateReader, gate
 from hotwire.settings import Settings, data_dir
+from hotwire.systemserver import SystemReader, SystemStatus
 
 
 class AppContext(QObject):
@@ -26,6 +27,9 @@ class AppContext(QObject):
         self.index = Index()
         self.nt, self.nt_backend_desc = make_client(settings.nt_backend, settings.nt_port)
         self.state_reader = RobotStateReader(self.nt)
+        # The SystemCore's own server (port 6810): state and health even without robot code.
+        self.system = SystemReader(settings.nt_backend, settings.system_port) if settings.system_server else None
+        self.system_status = SystemStatus()
         self.state = RobotState()
         self._log_file = data_dir() / "hotwire.log"
         self._last_connect_time = 0.0
@@ -44,9 +48,13 @@ class AppContext(QObject):
             return
         self.nt.port = self.settings.nt_port
         self.nt.start(self.nt_hosts())
+        if self.system is not None:
+            self.system.start(self.nt_hosts())
 
     def stop_nt(self) -> None:
         self.nt.stop()
+        if self.system is not None:
+            self.system.stop()
 
     def restart_nt(self) -> None:
         self.stop_nt()
@@ -60,7 +68,11 @@ class AppContext(QObject):
             self._batt_uid = self.nt.subscribe([self.settings.battery_topic], periodic=0.5)
 
     def battery_voltage(self) -> float | None:
-        if not self.settings.battery_topic.strip() or self.locked or self._batt_uid is None:
+        if self.locked:
+            return None
+        if self.system_status.battery is not None:  # the SystemCore's own reading: no robot code needed
+            return self.system_status.battery
+        if not self.settings.battery_topic.strip() or self._batt_uid is None:
             return None
         v = self.nt.get(self.settings.battery_topic)
         return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
@@ -87,8 +99,34 @@ class AppContext(QObject):
         self.lock_changed.emit(self.locked)
 
     # ---------------------------------------------------------------- state
+    def read_state(self) -> RobotState:
+        """Robot state from robot code's DS topics, filled in from the SystemCore's own server.
+
+        The SystemCore server can only ADD the field lock (FMS from either one counts), and it
+        stands in when robot code isn't running (state.robot_code = False).
+        """
+        if self.locked:
+            return RobotState()
+        s = self.state_reader.read()
+        sys_ctl = None
+        if self.system is not None:
+            self.system_status = self.system.read()
+            sys_ctl = self.system_status.control if self.system_status.connected else None
+        if sys_ctl is not None:
+            if s.known:
+                s.fms_attached = s.fms_attached or sys_ctl["fms_attached"]
+            else:
+                s.nt_connected = True
+                s.known = True
+                s.robot_code = bool(self.system_status.has_user_code)
+                for k, v in sys_ctl.items():
+                    setattr(s, k, v)
+        if self.system is not None:
+            self.system.set_field_mode(s.fms_attached)
+        return s
+
     def update_state(self) -> RobotState:
-        self.state = self.state_reader.read() if not self.locked else RobotState()
+        self.state = self.read_state()
         # On the field (FMS attached) only the tiny DS/FMS subscription stays: drop the battery
         # one too (Cameras, Jetson and Signals drop theirs on this same tick).
         if self.state.fms_attached and self._batt_uid is not None:
@@ -104,7 +142,7 @@ class AppContext(QObject):
         return self.state
 
     def gate(self, manual: bool, transfer: bool = True) -> Gate:
-        return gate(self.state_reader.read() if not self.locked else RobotState(), self.locked, manual, transfer)
+        return gate(self.read_state(), self.locked, manual, transfer)
 
     # ---------------------------------------------------------------- log
     def log(self, msg: str) -> None:

@@ -73,7 +73,36 @@ TOPICS["/HOTVision/events/event_count"] = "double"
 TOPICS["/HOTVision/events/usb_disconnects"] = "double"
 # Topic properties, like a WPILib unit topic publishes ("unit" = the unit's name)
 PROPERTIES = {"/HOT/Robot/BatteryVoltage": {"unit": "volt"}}
-TYPE_IDS = {"boolean": 0, "double": 1, "int": 2, "float": 3, "string": 4, "struct:ControlWord": 5}
+TYPE_IDS = {"boolean": 0, "double": 1, "int": 2, "float": 3, "string": 4, "struct:ControlWord": 5,
+            "proto:mrc.proto.ProtobufControlData": 5}  # fmt: skip
+
+# --system: the SystemCore OS's own server (port 6810), which runs without robot code
+SYSTEM_TOPICS = {
+    "/Netcomm/Control/ControlData": "proto:mrc.proto.ProtobufControlData",
+    "/Netcomm/Status/HasUserCode": "boolean",
+    "/sys/battery": "double",
+    "/sys/storageavail": "int",
+    "/sys/storagetotal": "int",
+    "/sys/cpu": "double",
+    "/sys/ramutil": "double",
+    "/sys/temp": "double",
+    "/sys/brownout": "int",
+    "/sys/faults/canbus_down": "int",
+    "/sys/emmc/status": "string",
+    "/sys/osver": "string",
+}
+
+
+def control_data(enabled: bool, fms: bool, mode: int = 3, ds: bool = True) -> bytes:
+    """ProtobufControlData with field 5 ControlWord: bit 0 enabled, 1-2 mode, 3 e-stop, 4 FMS, 5 DS."""
+    word = int(enabled) | (mode << 1) | (int(fms) << 4) | (int(ds) << 5) | 0x8000
+    out, v = bytearray([5 << 3]), word
+    while True:
+        b = v & 0x7F
+        v >>= 7
+        out.append(b | (0x80 if v else 0))
+        if not v:
+            return bytes(out)
 
 
 def control_word(enabled: bool, fms: bool, ds: bool = True, mode: int = 3) -> bytes:
@@ -317,7 +346,11 @@ def main():
     ap.add_argument("--port", type=int, default=5810)
     ap.add_argument("--fms", action="store_true", help="pretend the FMS is attached")
     ap.add_argument("--enabled", action="store_true", help="pretend the robot is enabled")
+    ap.add_argument("--system", action="store_true", help="be the SystemCore OS server (port 6810) instead")
+    ap.add_argument("--no-code", action="store_true", help="--system: robot code isn't running")
     args = ap.parse_args()
+    if args.system:
+        return system_main(args)
     word = control_word(args.enabled, args.fms, mode=2 if args.fms else 3)
     state = {"clients": [], "values": {}}
     state["values"].update(
@@ -374,6 +407,47 @@ def main():
             except OSError:
                 pass
         time.sleep(0.02)
+
+
+def system_main(args):
+    TOPICS.clear()
+    TOPICS.update(SYSTEM_TOPICS)
+    IDS.clear()
+    IDS.update({name: i + 1 for i, name in enumerate(TOPICS)})
+    vals = {
+        "/Netcomm/Control/ControlData": control_data(args.enabled, args.fms, mode=2 if args.fms else 3),
+        "/Netcomm/Status/HasUserCode": not args.no_code,
+        "/sys/battery": 11.55,
+        "/sys/storageavail": 4_649_603_072,
+        "/sys/storagetotal": 7_326_429_184,
+        "/sys/cpu": 15.5,
+        "/sys/ramutil": 15.8,
+        "/sys/temp": 38.0,
+        "/sys/brownout": 0,
+        "/sys/faults/canbus_down": 0,
+        "/sys/emmc/status": "good",
+        "/sys/osver": "limelightosr-2027.0.0-alpha17",
+    }
+    state = {"clients": [], "values": dict(vals)}
+    srv = socket.socket()
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", args.port))
+    srv.listen()
+    print(f"fake SystemCore system NT4 server on 127.0.0.1:{args.port}")
+
+    def accept_loop():
+        while True:
+            s, _ = srv.accept()
+            Client(s, state).start()
+
+    threading.Thread(target=accept_loop, daemon=True).start()
+    while True:
+        for c in list(state["clients"]):
+            try:
+                c.send_values(vals)
+            except OSError:
+                pass
+        time.sleep(0.2)
 
 
 if __name__ == "__main__":

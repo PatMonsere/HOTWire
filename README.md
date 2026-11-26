@@ -7,6 +7,7 @@ Pit laptop tool for FRC Team 67 (HOT). Plug the tether into the robot and HOTWir
 - **Signals**: a signal viewer in the style of CANape / INCA MDA, for live robot NetworkTables or a `.wpilog` / recording file. See [Signals tab](#signals-tab).
 - **Cameras**: live HOTVision streams from the Jetson, with checks for stalled, frozen, dark, washed-out or blurry pictures and low capture fps.
 - **Jetson**: live health (temperatures, CPU/GPU, memory, disk, service restarts, USB errors after boot), HOTVision's heartbeat from NetworkTables (alive, input voltage and the lowest dip seen, throttling, reboots, camera USB disconnects, and a list of events) and one-click snapshots (HOTVision journal, kernel log, `camera_config.json`, system report).
+- **SystemCore status** (header): the SystemCore's own NetworkTables server (port 6810) runs even when robot code doesn't, so HOTWire shows the robot state (with "no robot code"), battery voltage, free robot disk, CPU and temperature, and warns on a brownout, CAN bus down or no robot code. Auto log pull works without robot code too. Turn it off in **Settings** if needed.
 - **Settings**: device IPs, a one-time password login that installs this laptop's SSH key, and a "via SystemCore" route to reach the Jetson when you're on the robot's Wi-Fi.
 
 ## Field safety
@@ -19,6 +20,8 @@ HOTWire never talks to the robot while it's on the field. It reads the robot's o
 | Enabled | No downloads or deletes (streams and health OK) |
 | State unknown | Auto mode waits; manual actions ask "are you in the pits?" |
 | **Competition lock** button | No robot connections at all, NetworkTables included |
+
+The robot state comes from robot code's Driver Station topics and from the SystemCore's own server. The SystemCore server fills in when robot code isn't running, but it can only **add** the field lock: if either one says the FMS is attached, HOTWire treats the robot as on the field.
 
 Robot files are never deleted unless the downloaded copy matches the robot's own checksum, and the log file currently being written is never touched.
 

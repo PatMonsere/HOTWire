@@ -37,6 +37,7 @@ class RobotState:
     event: str = ""
     match: str = ""  # e.g. "Q12"
     mode: str = ""  # 2027: unknown / autonomous / teleoperated / utility
+    robot_code: bool = True  # False: state from the SystemCore's own server, robot code not running
 
     @property
     def label(self) -> str:
@@ -47,6 +48,8 @@ class RobotState:
         if self.fms_attached:
             return "On field (FMS) - locked"
         m = f" ({self.mode})" if self.mode and self.mode != "unknown" else ""
+        if not self.robot_code:
+            m += " · no robot code"
         if self.enabled:
             return "Enabled" + m
         return "Disabled" + m

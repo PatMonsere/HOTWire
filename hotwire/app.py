@@ -52,6 +52,9 @@ class MainWindow(QMainWindow):
         self.battery = QLabel("Battery: n/a")
         self.battery.setToolTip("Robot battery voltage (from the NT topic set in Settings)")
         head.addWidget(self.battery)
+        self.syscore = QLabel("")
+        self.syscore.setToolTip("From the SystemCore's own NetworkTables server (port 6810): works without robot code")
+        head.addWidget(self.syscore)
         self.match = QLabel("")
         head.addWidget(self.match)
         head.addStretch(1)
@@ -160,6 +163,15 @@ class MainWindow(QMainWindow):
             bc = "fail" if v < s.battery_low_v else "warn" if v < s.battery_warn_v else "pass"
             self.battery.setText(f"🔋 {v:.2f} V")
             self.battery.setStyleSheet(badge_style(STATUS_COLORS[bc]))
+        ss = self.ctx.system_status
+        text_sc = ss.summary() if not self.ctx.locked and not st.fms_attached else ""
+        self.syscore.setText(f"SystemCore: {text_sc}" if text_sc else "")
+        self.syscore.setStyleSheet(badge_style(STATUS_COLORS["fail" if ss.problem() else "info"]) if text_sc else "")
+        if ss.os_version:
+            self.syscore.setToolTip(
+                f"SystemCore OS {ss.os_version} · eMMC {ss.emmc or '?'} · RAM {ss.ram_util or 0:.0f} %\n"
+                "From the SystemCore's own NetworkTables server (port 6810): works without robot code"
+            )
         host = self.ctx.nt.connected_host
         bits = [b for b in (st.event, st.match) if b]
         nt = f"NT ({self.ctx.nt.backend}): {host}" if host else f"NT ({self.ctx.nt.backend})"

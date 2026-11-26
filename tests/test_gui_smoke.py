@@ -27,12 +27,14 @@ def test_gui_smoke(tmp_path):
     sys.excepthook = lambda *a: errors.append(a)
 
     p = subprocess.Popen([sys.executable, str(ROOT / "tools" / "fake_robot.py"), "--port", "15820"])
+    psys = subprocess.Popen([sys.executable, str(ROOT / "tools" / "fake_robot.py"), "--port", "15821", "--system"])
     try:
         time.sleep(0.8)
         app = QApplication.instance() or QApplication([])
         s = Settings()
         s.save_folder = str(tmp_path / "save")
         s.nt_port = 15820
+        s.system_port = 15821  # the fake SystemCore OS server
         s.device("SystemCore").hosts = [HostEntry("127.0.0.1")]
         s.device("SystemCore").auto = False  # no SSH server here
         s.device("Jetson").hosts = [HostEntry("127.0.0.1")]
@@ -58,6 +60,8 @@ def test_gui_smoke(tmp_path):
         assert ctx.state.known and not ctx.state.fms_attached, ctx.state
         assert "OK" in w.badge.text()
         assert w.battery.text().endswith(" V"), w.battery.text()  # battery readout from NT
+        assert "11.55 V" in w.battery.text()  # the SystemCore's own reading comes first
+        assert "robot code ✓" in w.syscore.text() and "GB free" in w.syscore.text(), w.syscore.text()
         for i in range(w.tabs.count()):
             w.tabs.setCurrentIndex(i)
             spin(0.6)
@@ -158,3 +162,4 @@ def test_gui_smoke(tmp_path):
         assert not errors, errors
     finally:
         p.kill()
+        psys.kill()

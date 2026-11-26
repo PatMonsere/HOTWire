@@ -110,6 +110,9 @@ class Settings:
     copy_ds_logs: bool = True
     ds_log_dir: str = r"C:\Users\Public\Documents\FIRSTDriverStation\Logs"
     ds_log_days: int = 14  # only DS logs from the last N days
+    # Read the SystemCore's own NT server (state, battery, disk, health without robot code).
+    system_server: bool = True
+    system_port: int = 6810
     stream_sharpness_min: float = 0.0  # 0 = don't judge sharpness
     devices: list[Device] = field(default_factory=default_devices)
 
