@@ -77,9 +77,17 @@ class Job(QObject):
             self.failed.connect(on_fail)
         if on_progress:
             self.progress.connect(on_progress)
+        # Released on the UI thread, after the callbacks above ran. (Releasing it in the worker
+        # thread freed the Job before Qt delivered done/failed, so callers that didn't keep a
+        # reference, like fire-and-forget jobs, could lose their callback.)
+        self.done.connect(self._release)
+        self.failed.connect(self._release)
         Job._alive.add(self)
         threading.Thread(target=self._run, daemon=True).start()
         return self
+
+    def _release(self, *_):
+        Job._alive.discard(self)
 
     def _run(self):
         try:
@@ -90,5 +98,3 @@ class Job(QObject):
             if not str(e):
                 msg += "\n" + traceback.format_exc(limit=3)
             self.failed.emit(msg)
-        finally:
-            Job._alive.discard(self)
