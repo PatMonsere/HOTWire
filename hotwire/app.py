@@ -246,7 +246,9 @@ class MainWindow(QMainWindow):
         QApplication.quit()
 
     def _shutdown(self):
-        self.cams_tab.stop_all()  # close camera streams -> HOTVision stops encoding
+        # close camera streams (HOTVision stops encoding) and stop camera tuning; settings
+        # that weren't kept are put back (camtune pending file)
+        self.cams_tab.shutdown()
         self.signals_tab.shutdown()
         self.pit_tab.shutdown()  # recording and the pit step subscription
         self.ctx.stop_nt()

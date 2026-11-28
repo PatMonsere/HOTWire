@@ -12,6 +12,14 @@
 - [x] Bump `hotwire/__init__.py` `__version__`: now 0.3.0 (release v0.2.0 was built from `signals-tab` with 0.1.0 in it).
 - [x] Merge `signals-tab` into `main` (with release v0.3.0, 2026-11-24).
 
+## Cameras tab: image tuning (0.5.0)
+- [x] New layout: camera tiles fill the tab's height on the left (2 columns up to 4 cameras, 3 for 5-6), settings panel on the right. Click a tile to select it, double-click to stream only that one.
+- [x] Settings panel: exposure, gamma, contrast, brightness (Read from camera / Apply), Tune this camera / Tune all / Stop, before/now table (settings, tags per frame, capture fps, ambiguity, picture brightness and contrast, blown highlights, crushed shadows, score), Show before (picture from before tuning in the tile), Keep / Undo / Keep all / Undo all.
+- [x] Tuning runs from the laptop through HOTVision's existing API (no Jetson changes): the same four settings tuned by hand in the shop; tags first, then capture fps and ambiguity; picture limits throw out washed-out or very dark settings; exposure capped at one frame. Settings from before are kept on the laptop until Keep/Undo; quitting puts them back, a crash is offered back on the next connection.
+- [ ] Try it on the robot: park where each camera sees 2+ tags, Tune all, compare with the shop settings (BACK_RIGHT: exposure 60, contrast 32, gamma 170, brightness 0). Check the time (target ~25 s), that v4l2-ctl ranges are read over SSH (Activity log says if not), and the picture measures with real tag images.
+- [ ] Tune SETTLE_S / MEASURE_S (camtune.py) from what the real cameras need: shorter if the scores are stable.
+- [ ] Later: a 5th camera, or a camera on the SystemCore through PhotonVision. The tiles and panel don't care where a camera lives; add a PhotonVision source (list cameras, stream URL, get/set settings, score) when it's set up.
+
 ## Signals tab
 Purpose: a quick **live** check in the pits ("look at this value while we get ready"). Match log analysis stays in AdvantageScope / CTRE Tuner X, which already load everything, so no more log-viewing features here (opening a `.wpilog` / `.csv` still works as it is).
 - [x] Phase 1: pop-out/pinned signal list, strips with shared time axis and L/R Y axes, wheel / drag / right-drag box zoom, 2 cursors with Δ, colors, saved layouts, live (+ basic .wpilog/.csv opening).

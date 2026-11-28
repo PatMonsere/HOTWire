@@ -70,9 +70,23 @@ class TcpLink:
 
 
 def http_get_json(device: Device, settings: Settings, path: str, port: int | None = None) -> dict:
-    link = TcpLink(device, settings, port or device.web_port)
+    return http_json(device, settings, "GET", path, port=port)
+
+
+def http_post_json(device: Device, settings: Settings, path: str, data: dict, port: int | None = None) -> dict:
+    return http_json(device, settings, "POST", path, data, port=port)
+
+
+def http_json(
+    device: Device, settings: Settings, method: str, path: str, data: dict | None = None, port: int | None = None
+) -> dict:
+    link = TcpLink(device, settings, port or device.web_port, timeout=5.0)
     try:
-        link.send(f"GET {path} HTTP/1.0\r\nHost: {link.host}\r\nConnection: close\r\n\r\n".encode())
+        body = json.dumps(data).encode() if data is not None else b""
+        head = f"{method} {path} HTTP/1.0\r\nHost: {link.host}\r\nConnection: close\r\n"
+        if data is not None:
+            head += f"Content-Type: application/json\r\nContent-Length: {len(body)}\r\n"
+        link.send(head.encode() + b"\r\n" + body)
         buf = b""
         while True:
             chunk = link.recv(65536)
@@ -98,6 +112,10 @@ class StreamStats:
     dark: bool = False
     washed: bool = False
     sharpness: float = 0.0  # variance of Laplacian on a thumbnail
+    blown: float = 0.0  # fraction of the picture nearly white (>= 250)
+    crushed: float = 0.0  # fraction nearly black (<= 5)
+    contrast: float = 0.0  # 95th - 5th percentile of brightness
+    image_seq: int = 0  # goes up whenever the picture measures above are updated
     frames: int = 0
     reconnects: int = 0
     error: str = ""
@@ -197,6 +215,11 @@ class StreamReader(QObject):
                         self.st.dark = self.st.brightness < 12
                         self.st.washed = self.st.brightness > 235 or float((g >= 250).mean()) > 0.5
                         self.st.sharpness = laplacian_var(g)
+                        self.st.blown = float((g >= 250).mean())
+                        self.st.crushed = float((g <= 5).mean())
+                        p5, p95 = np.percentile(g, (5, 95))
+                        self.st.contrast = float(p95 - p5)
+                        self.st.image_seq += 1
                         if prev is not None and float(np.abs(g - prev).mean()) < 0.05:
                             same_since = same_since or now
                         else:

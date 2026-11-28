@@ -16,6 +16,7 @@ import base64
 import hashlib
 import json
 import math
+import random
 import socket
 import struct
 import threading
@@ -341,9 +342,129 @@ class Client(threading.Thread):
             self.sock.close()
 
 
+# ---------------------------------------------------------------- fake HOTVision web API
+# Camera settings that a fake "camera" responds to: tags and picture brightness peak at the
+# values the real BACK_RIGHT camera was tuned to in the shop (exposure 60, gamma 170,
+# contrast 32, brightness 0). Used by the camera tuning test and for trying the Cameras tab.
+FAKE_CAMS = ("LEFT", "FRONT", "BACK_LEFT", "BACK_RIGHT")
+FAKE_BEST = {"exposure_time_absolute": 60.0, "gamma": 170.0, "contrast": 32.0, "brightness": 0.0}
+FAKE_RANGES = {"exposure_time_absolute": (1, 5000), "gamma": (64, 300), "contrast": (0, 95), "brightness": (-64, 64)}
+
+
+def fake_framerate(cam: str) -> float:
+    return 60.0 if cam == "FRONT" else 120.0
+
+
+def fake_start_settings() -> dict:
+    # deliberately off: too much exposure, flat contrast
+    return {cam: {"exposure_time_absolute": 150.0, "gamma": 120.0, "contrast": 10.0, "brightness": 20.0,
+                  "saturation": 1.0, "sharpness": 1.0, "gain": 49.0} for cam in FAKE_CAMS}
+
+
+def fake_tags(s: dict) -> float:
+    """Detected tags (0..4) for these settings."""
+    d = (((s["exposure_time_absolute"] - 60) / 40) ** 2 + ((s["gamma"] - 170) / 90) ** 2
+         + ((s["contrast"] - 32) / 30) ** 2 + (s["brightness"] / 45) ** 2)
+    return max(0.0, 4.0 - 1.5 * d)
+
+
+def fake_capture_fps(cam: str, s: dict) -> float:
+    fr = fake_framerate(cam)
+    return min(fr - 0.5, 10000.0 / max(s["exposure_time_absolute"], 1.0))
+
+
+_JPEG_LOCK = threading.Lock()  # Qt image encoding from several stream threads at once isn't safe here
+
+
+def fake_jpeg(level: int, contrast: int) -> bytes:
+    """A gray "tag-like" checker pattern (no QPainter: built with numpy, encoded by Qt under a lock)."""
+    import numpy as np
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+    from PySide6.QtGui import QImage
+
+    lo, hi = max(0, level - contrast), min(255, level + contrast)
+    yy, xx = np.mgrid[0:100, 0:160]
+    a = np.where(((xx // 20) + (yy // 20)) % 2 == 1, hi, lo).astype(np.uint8)
+    with _JPEG_LOCK:
+        img = QImage(a.tobytes(), 160, 100, 160, QImage.Format.Format_Grayscale8).copy()
+        ba = QByteArray()
+        buf = QBuffer(ba)
+        buf.open(QIODevice.OpenModeFlag.WriteOnly)
+        img.save(buf, "JPG", 80)
+        return bytes(ba)
+
+
+def start_fake_hotvision(port: int, cam_settings: dict) -> None:
+    import json as _json
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    jpeg_cache: dict = {}
+
+    class H(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.0"
+
+        def log_message(self, *a):
+            pass
+
+        def _json(self, obj, code=200):
+            body = _json.dumps(obj).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            parts = self.path.strip("/").split("/")
+            if self.path == "/api/cameras":
+                self._json({cam: {"index": f"/dev/v4l/by-id/fake-{cam}-video-index0", "width": 1280, "height": 800,
+                                  "framerate": fake_framerate(cam), "pipelines": ["apriltag"],
+                                  "settings": dict(cam_settings[cam]), "connected": True} for cam in FAKE_CAMS})
+            elif len(parts) == 3 and parts[0] == "stream" and parts[1] in cam_settings:
+                cam = parts[1]
+                self.send_response(200)
+                self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+                self.end_headers()
+                try:
+                    while True:
+                        s = cam_settings[cam]
+                        level = int(max(0, min(255, 30 + 1.4 * s["exposure_time_absolute"] + s["brightness"])))
+                        con = int(max(0, min(120, 8 + 1.5 * s["contrast"])))
+                        key = (level // 4 * 4, con // 4 * 4)
+                        if key not in jpeg_cache:
+                            jpeg_cache[key] = fake_jpeg(*key)
+                        jpg = jpeg_cache[key]
+                        self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpg + b"\r\n")
+                        time.sleep(1 / 30)
+                except OSError:
+                    pass
+            else:
+                self._json({"error": "not found"}, 404)
+
+        def do_POST(self):
+            parts = self.path.strip("/").split("/")
+            n = int(self.headers.get("Content-Length") or 0)
+            data = _json.loads(self.rfile.read(n) or b"{}")
+            if len(parts) == 4 and parts[:2] == ["api", "cameras"] and parts[3] == "settings" and parts[2] in cam_settings:
+                time.sleep(0.15)  # like v4l2-ctl + saving the config on the Jetson
+                for k, v in data.items():
+                    if k in cam_settings[parts[2]]:
+                        lo, hi = FAKE_RANGES.get(k, (-1e9, 1e9))
+                        cam_settings[parts[2]][k] = float(min(max(float(v), lo), hi))
+                self._json({"status": "ok", "settings": dict(cam_settings[parts[2]])})
+            else:
+                self._json({"error": "not found"}, 404)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", port), H)
+    srv.daemon_threads = True
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    print(f"fake HOTVision web API on 127.0.0.1:{port}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=5810)
+    ap.add_argument("--web-port", type=int, default=0, help="also run a fake HOTVision web API (camera settings, streams)")
     ap.add_argument("--fms", action="store_true", help="pretend the FMS is attached")
     ap.add_argument("--enabled", action="store_true", help="pretend the robot is enabled")
     ap.add_argument("--system", action="store_true", help="be the SystemCore OS server (port 6810) instead")
@@ -373,18 +494,27 @@ def main():
             Client(s, state).start()
 
     threading.Thread(target=accept_loop, daemon=True).start()
+    cam_settings = fake_start_settings()
+    if args.web_port:
+        start_fake_hotvision(args.web_port, cam_settings)
     t_start = time.monotonic()
     last_ctrl = 0.0
     last_seq, n_events = -1, 0
     while True:
         t = time.monotonic() - t_start
         vals = pit_signals(t)
-        for cam in ("LEFT", "FRONT", "BACK_LEFT", "BACK_RIGHT"):
+        for cam in FAKE_CAMS:
             vals[f"/HOTVision/{cam}/connected"] = True
-            vals[f"/HOTVision/{cam}/capture_fps"] = 119.5 if cam != "FRONT" else 60.0
             vals[f"/HOTVision/{cam}/apriltag/latency"] = 18.0
-            vals[f"/HOTVision/{cam}/apriltag/num_tags"] = 2
             vals[f"/HOTVision/{cam}/status/fps"] = 119.5
+            if args.web_port:  # cameras respond to their settings (tags per frame vary frame to frame)
+                s = cam_settings[cam]
+                tags = fake_tags(s)
+                vals[f"/HOTVision/{cam}/capture_fps"] = round(fake_capture_fps(cam, s), 1)
+                vals[f"/HOTVision/{cam}/apriltag/num_tags"] = int(tags) + (1 if random.random() < tags % 1 else 0)
+            else:
+                vals[f"/HOTVision/{cam}/capture_fps"] = 119.5 if cam != "FRONT" else 60.0
+                vals[f"/HOTVision/{cam}/apriltag/num_tags"] = 2
         seq = int(t / 0.25)
         if seq != last_seq:
             last_seq = seq

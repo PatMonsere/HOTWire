@@ -216,6 +216,20 @@ def _num(x) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool)
 
 
+def read_v4l2_ranges(conn, device_paths: dict[str, str]) -> dict[str, dict]:
+    """{camera: {control: (min, max, step)}} from `v4l2-ctl -l` (read-only) for each camera's device path."""
+    from hotwire.camtune import parse_v4l2_controls
+
+    out = {}
+    for cam, path in device_paths.items():
+        if not path:
+            continue
+        rc, text, _ = conn.run(f"v4l2-ctl -d {shlex.quote(path)} -l", timeout=10)
+        if rc == 0:
+            out[cam] = parse_v4l2_controls(text)
+    return out
+
+
 def read_camera_config(conn, dev: Device) -> dict:
     """{camera name: configured framerate} from the Jetson's camera_config.json."""
     rc, out, _ = conn.run(f"cat {shlex.quote(dev.hotvision_dir + '/.config/camera_config.json')}")
